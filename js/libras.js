@@ -116,28 +116,28 @@ export function install(api) {
     common(ctx, t, title, subtitle) {
       const W = api.W, H = api.H, MIN = api.MIN;
       bg(ctx, '#0f766e', '#042f2e');
-      label(ctx, title, W / 2, H * 0.1, MIN * 0.06, '#99f6e4');
-      if (subtitle) label(ctx, subtitle, W / 2, H * 0.17, MIN * 0.035, '#ccfbf1');
+      label(ctx, title, W / 2, H * 0.2, MIN * 0.055, '#99f6e4');
+      if (subtitle) label(ctx, subtitle, W / 2, H * 0.27, MIN * 0.032, '#ccfbf1');
     },
     /** Desenha alvo (letra + esquema) à esquerda e leitura ao vivo à direita. Retorna leitura. */
     drawPair(ctx, target, hold) {
       const W = api.W, H = api.H, MIN = api.MIN;
       if (!target || !LETTERS[target]) return null;
       // Alvo
-      label(ctx, target, W * 0.25, H * 0.42, MIN * 0.3, '#fff');
+      label(ctx, target, W * 0.25, H * 0.47, MIN * 0.26, '#fff');
       drawHandSchematic(ctx, W * 0.25, H * 0.76, MIN * 0.42, LETTERS[target]);
       // Ao vivo
       const bh = bestHand(target);
       const live = bh?.r.letter || '?';
-      label(ctx, live, W * 0.75, H * 0.42, MIN * 0.3, live === target ? '#4ade80' : live === '?' ? 'rgba(255,255,255,.4)' : '#fbbf24');
+      label(ctx, live, W * 0.75, H * 0.47, MIN * 0.26, live === target ? '#4ade80' : live === '?' ? 'rgba(255,255,255,.4)' : '#fbbf24');
       if (bh) drawHandSchematic(ctx, W * 0.75, H * 0.76, MIN * 0.42, features(bh.c.lm), '#bfdbfe');
       else label(ctx, '✋ mostre a mão', W * 0.75, H * 0.76, MIN * 0.045, '#fde68a');
       // Barra de progresso de "segurar"
       if (hold > 0) { ctx.fillStyle = 'rgba(255,255,255,.2)'; ctx.fillRect(W * 0.3, H * 0.93, W * 0.4, MIN * 0.03); ctx.fillStyle = '#4ade80'; ctx.fillRect(W * 0.3, H * 0.93, W * 0.4 * clamp(hold / this.HOLD, 0, 1), MIN * 0.03); }
       // Dica
       const hint = bh && live !== target ? (bh.r.hint ? `Quase: ${bh.r.hint}` : LETTERS[target].dica) : LETTERS[target].dica;
-      label(ctx, hint, W / 2, H * 0.6, MIN * 0.038, '#fde68a');
-      ctx.strokeStyle = 'rgba(255,255,255,.2)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(W / 2, H * 0.25); ctx.lineTo(W / 2, H * 0.9); ctx.stroke();
+      label(ctx, hint, W / 2, H * 0.36, MIN * 0.036, '#fde68a');
+      ctx.strokeStyle = 'rgba(255,255,255,.2)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(W / 2, H * 0.4); ctx.lineTo(W / 2, H * 0.9); ctx.stroke();
       return bh?.r;
     },
     tick(dt, target) {
@@ -183,7 +183,7 @@ export function install(api) {
       this.common(ctx, t, 'SOLETRAR', null);
       // Palavra com a letra atual destacada
       const size = MIN * 0.075, total = this.word.length * size * 0.9, x0 = W / 2 - total / 2 + size * 0.45;
-      this.word.split('').forEach((ch, i) => label(ctx, ch, x0 + i * size * 0.9, H * 0.18, size, i < this.pos ? '#4ade80' : i === this.pos ? '#fde047' : 'rgba(255,255,255,.45)'));
+      this.word.split('').forEach((ch, i) => label(ctx, ch, x0 + i * size * 0.9, H * 0.28, size, i < this.pos ? '#4ade80' : i === this.pos ? '#fde047' : 'rgba(255,255,255,.45)'));
       this.drawPair(ctx, this.word[this.pos], this.hold);
     },
   };
