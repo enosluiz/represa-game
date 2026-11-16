@@ -72,7 +72,7 @@
       <div class="hud-box"><div class="hud-label">PONTOS</div><div id="hudScore" class="hud-value">0</div>
         <div id="hudP" class="hidden hud-label mt-1"><span class="text-sky-300">P1 <b id="hudP1">0</b></span> · <span class="text-orange-300">P2 <b id="hudP2">0</b></span></div>
       </div>
-      <div class="hud-box flex-1 max-w-[42vw]">
+      <div id="hudWaterBox" class="hud-box flex-1 max-w-[42vw]">
         <div class="hud-label flex justify-between"><span>RESERVATÓRIO</span><span id="hudWaterPct">100%</span></div>
         <div class="bar"><div id="hudWater" class="bar-fill"></div></div>
       </div>
@@ -103,6 +103,12 @@
           <button id="btnCampaign" class="btn btn-play" data-hover>🗺 Campanha</button>
           <button id="btnEndless" class="btn btn-ghost" data-hover>♾ Infinito</button>
         </div>
+        <div class="flex flex-wrap gap-3 justify-center items-center">
+          <span class="hud-label">OUTROS JOGOS</span>
+          <button id="btnInsetos" class="btn btn-mini" data-hover>🪲 Insetos</button>
+          <button id="btnRitmo" class="btn btn-mini" data-hover>🎵 Ritmo</button>
+          <button id="btnJokenpo" class="btn btn-mini" data-hover>✊✋✌ Jokenpô</button>
+        </div>
         <div class="flex flex-wrap gap-2 justify-center items-center">
           <span class="hud-label">JOGADORES</span>
           <button class="chip" data-players="auto" data-hover>🤖 Automático</button>
@@ -118,6 +124,7 @@
         <button id="optCamView" class="chip"></button>
         <button id="optTv" class="chip"></button>
         <button id="optDebug" class="chip"></button>
+        <button id="optDelegate" class="chip"></button>
         <button id="optFull" class="chip">⛶ Tela cheia</button>
         <button id="btnInstall" class="chip hidden !bg-emerald-600/80">⬇ Instalar app</button>
       </div>

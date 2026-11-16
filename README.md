@@ -10,6 +10,18 @@ Jogo em que você tampa vazamentos de uma represa com as mãos, usando a câmera
 - **Infinito** — todas as mecânicas juntas, dificuldade crescente.
 - **1 ou 2 jogadores** — por escolha ou automático: a mão que entra pela esquerda da câmera é P1, pela direita é P2. Reservatório compartilhado, pontuação individual.
 
+## Outros jogos (mesma câmera, com reconhecimento de gestos)
+- **🪲 Insetos** — esmague baratas, formigas e moscas; abelhas picam. 60 s, 3 vidas.
+- **🎵 Ritmo** — notas descem em 4 pistas; acerte com mão aberta ✋ ou fechada ✊ na pista certa.
+- **✊✋✌ Jokenpô** — melhor de 5 contra o computador ou entre P1 e P2.
+
+Gestos: contagem de dedos estendidos a partir dos 21 pontos (punho = 0–1, tesoura = indicador+médio, aberta = 4–5). Funciona com a mão de frente para a câmera.
+
+## Se a mão não é detectada
+1. Ligue **Debug** no menu: deve aparecer `IA x ms (GPU|CPU)` e `mãos N`. Se `IA` não aparecer, o modelo não carregou (precisa de internet na 1ª vez).
+2. Se `IA` roda mas `mãos` fica em 0: toque em **🧠 IA** até ficar em **CPU** (alguns Android falham na GPU em silêncio).
+3. Mão a 0,5–1,5 m da câmera, palma de frente, luz vindo de frente (não de trás).
+
 ## Cenários
 | # | Nome | Mecânica |
 |---|---|---|

@@ -10,7 +10,7 @@
  * disponível" e só troca quando o jogador toca em "Atualizar" (nunca no meio
  * de uma partida).
  * ========================================================================== */
-const VERSION = 'v2.0.0';
+const VERSION = 'v2.2.0';
 const APP_CACHE = `represa-app-${VERSION}`;
 const RUNTIME_CACHE = 'represa-runtime-v1'; // WASM/modelo: mantido entre versões
 
@@ -23,6 +23,7 @@ const APP_SHELL = [
   './index.html',
   './css/app.css',
   './js/app.js',
+  './js/minigames.js',
   './manifest.webmanifest',
   './icons/icon-192.png',
   './icons/icon-512.png',

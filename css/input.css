@@ -6,7 +6,7 @@
   body { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; -webkit-user-select: none; user-select: none; }
 
   /* Vídeo fica "invisível" mas ativo (display:none faz alguns iPhones pararem de decodificar frames) */
-  #video { position: fixed; width: 1px; height: 1px; opacity: 0; pointer-events: none; left: 0; top: 0; }
+  #video { position: fixed; width: 160px; height: 120px; opacity: 0.01; pointer-events: none; left: -200px; top: 0; }
   #game, #fx { position: fixed; inset: 0; display: block; }
   #fx { z-index: 50; pointer-events: none; }
 
@@ -59,3 +59,5 @@
 .sc-stars { font-size: clamp(11px, 2.2vmin, 24px); color: #fde047; }
 .sc-locked { filter: grayscale(1) brightness(.5); }
 .sc-locked .sc-stars { color: rgba(255,255,255,.6); font-size: clamp(9px, 1.6vmin, 16px); }
+
+.btn-mini { font-size: clamp(16px, 3.4vmin, 36px); padding: .45em 1.1em; background: rgba(255,255,255,.1); }

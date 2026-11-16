@@ -50,6 +50,7 @@ function saveJSON(key, obj) { try { localStorage.setItem(key, JSON.stringify(obj
 const settings = loadJSON('represa.settings', {
   facing: 'user', mirror: true, contact: 'palm', camOpacity: 0.3, tvMode: false, debug: false,
   players: 'auto',   // 'auto' | '1' | '2'
+  delegate: 'auto',  // 'auto' | 'GPU' | 'CPU' — alguns Android falham em silêncio na GPU
 });
 const saveSettings = () => saveJSON('represa.settings', settings);
 
@@ -66,7 +67,7 @@ const state = {
   scenarioIdx: 0,
   p2SeenAt: -1e9,      // última vez que uma mão do lado do jogador 2 foi vista (modo auto)
 };
-const stats = { fps: 0, detFps: 0, inferMs: 0, frames: 0, detFrames: 0, lastTick: 0, delegate: '-' };
+const stats = { fps: 0, detFps: 0, inferMs: 0, frames: 0, detFrames: 0, lastTick: 0, delegate: '-', handsEver: 0 };
 
 let game = null;
 
@@ -137,9 +138,17 @@ async function initTracker() {
   const fileset = await FilesetResolver.forVisionTasks(wasm);
   const modelUrl = await resolveModelUrl();
   const opts = (delegate) => ({ baseOptions: { modelAssetPath: modelUrl, delegate }, runningMode: 'VIDEO', numHands: 2,
-    minHandDetectionConfidence: 0.5, minHandPresenceConfidence: 0.5, minTrackingConfidence: 0.5 });
+    minHandDetectionConfidence: 0.4, minHandPresenceConfidence: 0.4, minTrackingConfidence: 0.4 });
+  if (settings.delegate === 'CPU') { tracker = await HandLandmarker.createFromOptions(fileset, opts('CPU')); stats.delegate = 'CPU'; return; }
   try { tracker = await HandLandmarker.createFromOptions(fileset, opts('GPU')); stats.delegate = 'GPU'; }
-  catch (e) { console.warn('GPU indisponível, usando CPU', e); tracker = await HandLandmarker.createFromOptions(fileset, opts('CPU')); stats.delegate = 'CPU'; }
+  catch (e) { console.warn('GPU indisponível, usando CPU', e); if (settings.delegate === 'GPU') throw e; tracker = await HandLandmarker.createFromOptions(fileset, opts('CPU')); stats.delegate = 'CPU'; }
+}
+/** Troca GPU↔CPU em tempo real (sem recarregar). */
+async function switchDelegate() {
+  const order = ['auto', 'GPU', 'CPU']; settings.delegate = order[(order.indexOf(settings.delegate) + 1) % 3]; saveSettings(); updateChips();
+  if (!tracker) return;
+  const old = tracker; tracker = null; try { old.close?.(); } catch { /* */ }
+  try { await initTracker(); toast(`IA rodando em ${stats.delegate}`); } catch (e) { setStatus(explainError(e), true); }
 }
 function detectHands(now) {
   if (!tracker || video.readyState < 2 || video.currentTime === lastVideoTime) return null;
@@ -175,7 +184,8 @@ function activePlayers(now = performance.now()) {
 
 function updateCursors(res, now) {
   state.lastLandmarks = res.landmarks || [];
-  const pts = state.lastLandmarks.map((lm) => { const p = toScreen(contactPoint(lm)); return { x: clamp(p.x, 0, W), y: clamp(p.y, 0, H), raw: toScreen(lm[0]) }; });
+  if (state.lastLandmarks.length) stats.handsEver++;
+  const pts = state.lastLandmarks.map((lm) => { const p = toScreen(contactPoint(lm)); return { x: clamp(p.x, 0, W), y: clamp(p.y, 0, H), raw: toScreen(lm[0]), lm }; });
   const used = new Set();
   for (const p of pts) {
     let bestC = null, bd = Infinity;
@@ -183,15 +193,39 @@ function updateCursors(res, now) {
     if (bestC && bd < MIN * 0.35) {
       const a = clamp(CONFIG.SMOOTH_MIN + bd / (MIN * CONFIG.SMOOTH_SPEED_REF), CONFIG.SMOOTH_MIN, 1);
       bestC.x += (p.x - bestC.x) * a; bestC.y += (p.y - bestC.y) * a; bestC.lastSeen = now; used.add(bestC);
+      updateGesture(bestC, p.lm, now);
     } else {
       // Jogador definido pelo lado em que a mão ENTRA na cena (fica fixo enquanto a mão for rastreada)
       const player = settings.players === '1' ? 1 : (p.raw.x < W / 2 ? 1 : 2);
-      const c = { id: nextCursorId++, x: p.x, y: p.y, lastSeen: now, player, wind: 0 };
-      cursors.push(c); used.add(c);
+      const c = { id: nextCursorId++, x: p.x, y: p.y, lastSeen: now, player, wind: 0, gesture: 'none', fingers: 0, gestureSince: now };
+      updateGesture(c, p.lm, now); cursors.push(c); used.add(c);
     }
     if (p.raw.x >= W / 2) state.p2SeenAt = now;
   }
 }
+/**
+ * Classificador de gestos por geometria: dedo "estendido" quando a ponta está mais longe
+ * do punho que a articulação do meio. Resultados: 'fist' (0–1 dedos), 'scissors'
+ * (indicador+médio), 'open' (4–5 dedos), 'other'. Precisa da mão de frente para a câmera.
+ */
+function classifyGesture(lm) {
+  const d = (a, b) => Math.hypot(lm[a].x - lm[b].x, lm[a].y - lm[b].y);
+  const ext = [[8, 6], [12, 10], [16, 14], [20, 18]].map(([tip, pip]) => d(tip, 0) > d(pip, 0) * 1.15);
+  const thumb = d(4, 17) > d(3, 17) * 1.1;
+  const n = ext.filter(Boolean).length + (thumb ? 1 : 0);
+  if (ext[0] && ext[1] && !ext[2] && !ext[3]) return { g: 'scissors', n };
+  if (n <= 1) return { g: 'fist', n };
+  if (n >= 4) return { g: 'open', n };
+  return { g: 'other', n };
+}
+function updateGesture(c, lm, now) {
+  const { g, n } = classifyGesture(lm);
+  c.fingers = n;
+  // Debounce: só troca de gesto depois de 3 leituras iguais (~100 ms), evita tremor
+  if (g === c.pendingG) { if (++c.pendingN >= 3 && g !== c.gesture) { c.gesture = g; c.gestureSince = now; } }
+  else { c.pendingG = g; c.pendingN = 1; }
+}
+
 function pruneCursors(now) { cursors = cursors.filter((c) => now - c.lastSeen < CONFIG.CURSOR_TTL_MS); if (cursors.length) state.lastHandAt = now; }
 /** Posição efetiva do cursor (com vento, nos cenários que têm). */
 const cx = (c) => c.x + c.wind;
@@ -461,8 +495,13 @@ function buildBg(sc) {
   return c;
 }
 
+let activeMini = null;
 function render(now) {
   const t = now / 1000, sc = scenario();
+  if (activeMini && ['mini', 'countdown', 'over'].includes(state.phase) && !game) {
+    activeMini.render(gctx, t, now);
+    fctx.clearRect(0, 0, W, H); if (settings.debug) drawDebug(); drawCursors(now); return;
+  }
   if (bgCacheKey !== sc.id) { bgCache = buildBg(sc); bgCacheKey = sc.id; }
 
   gctx.save();
@@ -617,7 +656,7 @@ function drawDebug() {
     for (const [a, b] of HAND_CONNECTIONS) { fctx.beginPath(); fctx.moveTo(pts[a].x, pts[a].y); fctx.lineTo(pts[b].x, pts[b].y); fctx.stroke(); }
     fctx.fillStyle = '#f43f5e'; for (const p of pts) { fctx.beginPath(); fctx.arc(p.x, p.y, 4, 0, Math.PI * 2); fctx.fill(); }
   }
-  const txt = `FPS ${stats.fps} | det ${stats.detFps}/s | IA ${stats.inferMs.toFixed(1)}ms (${stats.delegate}) | cam ${video.videoWidth}x${video.videoHeight} | mãos ${state.lastLandmarks.length} | jogadores ${activePlayers()} | part ${particles.length}`;
+  const txt = `FPS ${stats.fps} | det ${stats.detFps}/s | IA ${stats.inferMs.toFixed(1)}ms (${stats.delegate}) | cam ${video.videoWidth}x${video.videoHeight} | mãos ${state.lastLandmarks.length} (total ${stats.handsEver}) | jogadores ${activePlayers()} | part ${particles.length}`;
   fctx.font = `700 ${Math.round(clamp(MIN * 0.025, 11, 22))}px ui-monospace, monospace`; fctx.textAlign = 'left'; fctx.textBaseline = 'bottom';
   fctx.fillStyle = 'rgba(0,0,0,.65)'; fctx.fillRect(8, H - 8 - MIN * 0.045, fctx.measureText(txt).width + 16, MIN * 0.045);
   fctx.fillStyle = '#a3e635'; fctx.fillText(txt, 16, H - 14);
@@ -630,7 +669,8 @@ const hudCache = {};
 function setText(id, v) { if (hudCache[id] !== v) { hudCache[id] = v; $(id).textContent = v; } }
 
 function updateHUD(now) {
-  if (game && ['playing', 'countdown', 'paused'].includes(state.phase)) {
+  if (activeMini && !game) { /* o minijogo cuida do HUD */ }
+  else if (game && ['playing', 'countdown', 'paused'].includes(state.phase)) {
     const water = Math.max(0, 100 - game.waterLost), two = activePlayers(now) === 2;
     setText('hudScore', game.score.toLocaleString('pt-BR'));
     $('hudP').classList.toggle('hidden', !two);
@@ -643,7 +683,7 @@ function updateHUD(now) {
     bar.style.background = water < 30 ? 'linear-gradient(90deg,#dc2626,#f97316)' : 'linear-gradient(90deg,#0ea5e9,#38bdf8)';
     if (game.combo >= 2) { show('hudCombo'); setText('hudCombo', `🔥 COMBO x${(1 + 0.25 * Math.min(game.combo - 1, 8)).toFixed(2)}`); } else hide('hudCombo');
   }
-  $('handHint').classList.toggle('hidden', !(state.phase === 'playing' && now - state.lastHandAt > CONFIG.HAND_LOST_MS));
+  $('handHint').classList.toggle('hidden', !(['playing', 'mini'].includes(state.phase) && now - state.lastHandAt > CONFIG.HAND_LOST_MS));
   $('lightHint').classList.toggle('hidden', !(state.lowLight && state.phase !== 'boot'));
 }
 
@@ -659,6 +699,7 @@ function updateChips() {
   $('optCamView').textContent = `👁 Câmera ao fundo: ${Math.round(settings.camOpacity * 100)}%`;
   $('optTv').textContent = `📺 Modo TV: ${settings.tvMode ? 'On' : 'Off'}`;
   $('optDebug').textContent = `🐞 Debug: ${settings.debug ? 'On' : 'Off'}`;
+  $('optDelegate').textContent = `🧠 IA: ${settings.delegate === 'auto' ? 'Auto' : settings.delegate}${tracker ? ' (' + stats.delegate + ')' : ''}`;
   for (const b of document.querySelectorAll('[data-players]')) b.classList.toggle('chip-on', b.dataset.players === settings.players);
   $('bestMenu').textContent = `Campanha ${progress.bestCampaign.toLocaleString('pt-BR')} · Infinito ${progress.bestEndless.toLocaleString('pt-BR')}`;
 }
@@ -702,7 +743,7 @@ function updateHover(dtMs) {
 const SCREENS = ['menu', 'select', 'intro', 'pause', 'result', 'gameover'];
 function showScreen(id) { for (const s of SCREENS) $(s).classList.toggle('hidden', s !== id); $('hud').classList.toggle('hidden', !['countdown', 'playing', 'paused'].includes(state.phase)); }
 
-function goMenu() { state.phase = 'menu'; game = null; particles.length = 0; rain.length = 0; bgCacheKey = ''; updateChips(); showScreen('menu'); }
+function goMenu() { state.phase = 'menu'; game = null; activeMini = null; $('hudWaterBox').classList.remove('hidden'); particles.length = 0; rain.length = 0; bgCacheKey = ''; updateChips(); showScreen('menu'); }
 function goSelect() { state.phase = 'select'; buildSelect(); showScreen('select'); }
 
 function startEndless() {
@@ -725,9 +766,9 @@ function beginCountdown(n) { state.phase = 'countdown'; state.countdown = n; sta
 function updateCountdown(dt) {
   state.countdown -= dt; const n = Math.ceil(state.countdown);
   if (n !== state.lastCount && n > 0) { state.lastCount = n; banner(String(n)); sfx.tick(); }
-  if (state.countdown <= 0) { state.phase = 'playing'; banner('VAI!'); sfx.level(); }
+  if (state.countdown <= 0) { state.phase = activeMini && !game ? 'mini' : 'playing'; banner('VAI!'); sfx.level(); }
 }
-function pauseGame() { if (state.phase !== 'playing') return; state.phase = 'paused'; showScreen('pause'); }
+function pauseGame() { if (!['playing', 'mini'].includes(state.phase)) return; state.phase = 'paused'; showScreen('pause'); }
 function resumeGame() { beginCountdown(2); }
 
 /** Fim de cenário (campanha): vitória com estrelas, ou derrota. */
@@ -855,7 +896,7 @@ $('btnSelBack').addEventListener('click', goMenu);
 $('introBtn').addEventListener('click', () => beginCountdown(3));
 $('btnNext').addEventListener('click', nextScenario);
 $('btnResMenu').addEventListener('click', goMenu);
-$('btnAgain').addEventListener('click', () => { if (game.sc === ENDLESS) startEndless(); else startScenario(Math.max(0, game.score - game.p[1] - game.p[2])); });
+$('btnAgain').addEventListener('click', () => { if (activeMini && !game) { activeMini.start(); return; } if (game.sc === ENDLESS) startEndless(); else startScenario(Math.max(0, game.score - game.p[1] - game.p[2])); });
 $('btnMenu').addEventListener('click', goMenu);
 $('btnQuit').addEventListener('click', goMenu);
 $('btnResume').addEventListener('click', resumeGame);
@@ -868,6 +909,7 @@ $('optContact').addEventListener('click', () => { settings.contact = settings.co
 $('optCamView').addEventListener('click', () => { const steps = [0, 0.2, 0.3, 0.6]; settings.camOpacity = steps[(steps.indexOf(settings.camOpacity) + 1) % steps.length] ?? 0.3; saveSettings(); updateChips(); });
 $('optTv').addEventListener('click', () => { settings.tvMode = !settings.tvMode; saveSettings(); updateChips(); });
 $('optDebug').addEventListener('click', () => { settings.debug = !settings.debug; saveSettings(); updateChips(); });
+$('optDelegate').addEventListener('click', switchDelegate);
 document.addEventListener('visibilitychange', () => { if (document.hidden) pauseGame(); else if (state.phase !== 'boot') requestWakeLock(); });
 window.addEventListener('resize', resize); window.addEventListener('orientationchange', () => setTimeout(resize, 200));
 
@@ -881,10 +923,27 @@ function loop(now) {
   const res = detectHands(now); if (res) updateCursors(res, now); pruneCursors(now); checkLight(now);
   if (state.phase === 'countdown') updateCountdown(dt);
   else if (state.phase === 'playing') updateGame(dt, now);
+  else if (state.phase === 'mini' && activeMini) activeMini.update(dt, now);
   if (state.phase !== 'paused') updateParticles(dt);
   render(now); updateHover(dt * 1000); updateHUD(now);
   stats.frames++; if (now - stats.lastTick >= 1000) { stats.fps = stats.frames; stats.detFps = stats.detFrames; stats.frames = 0; stats.detFrames = 0; stats.lastTick = now; }
 }
 
-window.__represa = { get game() { return game; }, get state() { return state; }, CONFIG, SCENARIOS, startScenario, startEndless, settings };
+// ---- API usada pelos minijogos (js/minigames.js) ----
+const miniAPI = {
+  get W() { return W; }, get H() { return H; }, get MIN() { return MIN; }, get cursors() { return cursors; }, cx,
+  state, settings, sfx, tone, noise, banner, toast, show, hide, setText, showScreen, PLAYER_COLORS, activePlayers,
+  emit, particles, rand, randInt, clamp, lerp, pick, fmtTime, contactRadius, ensureAudio, requestWakeLock, progress, saveProgress,
+  startMini(mini) { ensureAudio(); requestWakeLock(); game = null; activeMini = mini; window.__mini = mini; mini.start(); $('hudWaterBox').classList.add('hidden'); beginCountdown(3); },
+  endMini({ title, score, stats, bestKey }) {
+    state.phase = 'over'; sfx.over();
+    const isRecord = score > (progress[bestKey] || 0); if (isRecord) { progress[bestKey] = score; saveProgress(); }
+    $('goTitle').textContent = title; $('goScore').textContent = `${score.toLocaleString('pt-BR')} pts`; $('goStats').textContent = stats;
+    $('goBest').textContent = isRecord ? '🏆 NOVO RECORDE!' : `Recorde: ${(progress[bestKey] || 0).toLocaleString('pt-BR')}`;
+    $('btnAgain').textContent = '↻ Jogar de novo'; showScreen('gameover');
+  },
+};
+import('./minigames.js').then((m) => m.install(miniAPI)).catch((e) => console.warn('minijogos não carregaram', e));
+
+window.__represa = { get game() { return game; }, get cursors() { return cursors; }, get state() { return state; }, CONFIG, SCENARIOS, startScenario, startEndless, settings };
 resize(); updateChips(); setupPWA(); requestAnimationFrame(loop);
