@@ -15,14 +15,16 @@ export function install(api) {
   function bg(ctx, a, b) { const g = ctx.createLinearGradient(0, 0, 0, api.H); g.addColorStop(0, a); g.addColorStop(1, b); ctx.fillStyle = g; ctx.fillRect(0, 0, api.W, api.H); }
 
   // Velocidade dos cursores (px/s), calculada aqui a partir das posições
+  // Histórico curto de posições por cursor → velocidade média dos últimos ~200 ms
+  // (robusto à detecção a 30 fps e à suavização do cursor)
   const vel = new Map();
-  function updateVel(dt) {
+  function updateVel(dt, now) {
     const seen = new Set();
     for (const c of api.cursors) {
-      seen.add(c.id); const p = vel.get(c.id);
-      const x = api.cx(c), y = c.y;
-      if (p) { p.vx = lerp(p.vx, (x - p.x) / dt, 0.5); p.vy = lerp(p.vy, (y - p.y) / dt, 0.5); p.x = x; p.y = y; }
-      else vel.set(c.id, { x, y, vx: 0, vy: 0 });
+      seen.add(c.id); let p = vel.get(c.id); if (!p) { p = { hist: [], vx: 0, vy: 0 }; vel.set(c.id, p); }
+      p.hist.push({ t: now, x: api.cx(c), y: c.y }); while (p.hist.length > 2 && now - p.hist[0].t > 200) p.hist.shift();
+      const a = p.hist[0], b = p.hist[p.hist.length - 1], span = Math.max(16, b.t - a.t) / 1000;
+      p.vx = (b.x - a.x) / span; p.vy = (b.y - a.y) / span; p.dy = b.y - a.y;
     }
     for (const id of vel.keys()) if (!seen.has(id)) vel.delete(id);
   }
@@ -73,12 +75,12 @@ export function install(api) {
       setText('hudLevel', String(this.hits)); setText('hudScore', this.score.toLocaleString('pt-BR'));
     },
     update(dt) {
-      const MIN = api.MIN; this.t += dt; updateVel(dt);
+      const MIN = api.MIN; this.t += dt; updateVel(dt, performance.now());
       for (const k in this.flash) this.flash[k] = Math.max(0, this.flash[k] - dt * 4);
       // Detecta "batida": entrar na peça com velocidade vertical > limiar (para baixo)
       for (const c of api.cursors) {
         const v = vel.get(c.id); const pad = this.padAt(api.cx(c), c.y); const was = this.inside.get(c.id);
-        if (pad && pad.id !== was && v && v.vy > MIN * 0.9) this.hit(pad, c.player);
+        if (pad && pad.id !== was && v && (v.vy > MIN * 0.35 || v.dy > pad.r * MIN * 0.5)) this.hit(pad, c.player);
         this.inside.set(c.id, pad ? pad.id : null);
       }
       if (this.fx) { this.fx.life -= dt; this.fx.y -= MIN * 0.1 * dt; if (this.fx.life <= 0) this.fx = null; }

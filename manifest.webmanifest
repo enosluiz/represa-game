@@ -1,8 +1,8 @@
 {
   "id": "./",
-  "name": "Represa — Jogo de Hand Tracking",
-  "short_name": "Represa",
-  "description": "Tampe os vazamentos da represa com as mãos, usando a câmera do celular.",
+  "name": "Levanta e Brinca",
+  "short_name": "Levanta",
+  "description": "Jogos para jogar com o corpo, sem tocar na tela: a câmera do celular vê suas mãos.",
   "lang": "pt-BR",
   "start_url": "./",
   "scope": "./",

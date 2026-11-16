@@ -10,7 +10,7 @@
  * disponível" e só troca quando o jogador toca em "Atualizar" (nunca no meio
  * de uma partida).
  * ========================================================================== */
-const VERSION = 'v2.4.0';
+const VERSION = 'v3.0.0';
 const APP_CACHE = `represa-app-${VERSION}`;
 const RUNTIME_CACHE = 'represa-runtime-v1'; // WASM/modelo: mantido entre versões
 
@@ -80,17 +80,13 @@ self.addEventListener('fetch', (event) => {
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
 
-  // 1) Navegação: rede primeiro (pega versão nova), cache se offline
+  // 1) Navegação: serve o index.html DA MESMA VERSÃO dos scripts em cache (coerência).
+  //    A versão nova chega pelo ciclo do service worker (VERSION ↑ → "Atualizar" / auto no menu).
   if (req.mode === 'navigate') {
     event.respondWith((async () => {
-      try {
-        const fresh = await fetch(req);
-        const app = await caches.open(APP_CACHE);
-        app.put('./index.html', fresh.clone());
-        return fresh;
-      } catch {
-        return (await caches.match('./index.html', { ignoreSearch: true })) || Response.error();
-      }
+      const hit = await caches.match('./index.html', { ignoreSearch: true });
+      if (hit) return hit;
+      try { return await fetch(req); } catch { return Response.error(); }
     })());
     return;
   }
@@ -108,16 +104,13 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // 3) Demais arquivos do próprio site: stale-while-revalidate
+  // 3) Demais arquivos do próprio site: cache-first dentro da versão instalada
   if (url.origin === self.location.origin) {
     event.respondWith((async () => {
       const app = await caches.open(APP_CACHE);
       const hit = await app.match(req, { ignoreSearch: true });
-      const update = fetch(req).then((res) => {
-        if (res.ok) app.put(req, res.clone());
-        return res;
-      }).catch(() => null);
-      return hit || (await update) || Response.error();
+      if (hit) return hit;
+      const res = await fetch(req); if (res.ok) app.put(req, res.clone()); return res;
     })());
   }
 });

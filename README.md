@@ -1,7 +1,7 @@
-# Represa — PWA de hand tracking
+# Levanta e Brinca — PWA de jogos com hand tracking
 
-Jogo em que você tampa vazamentos de uma represa com as mãos, usando a câmera do celular
-(MediaPipe Tasks Vision `HandLandmarker`, rodando 100% no aparelho).
+Jogos que você joga com as mãos, sem tocar na tela, usando a câmera do celular
+(MediaPipe Tasks Vision `HandLandmarker`, rodando 100% no aparelho). Inclui o jogo da Represa (10 cenários) e minijogos.
 
 **Jogar:** https://enosluiz.github.io/represa-game/
 

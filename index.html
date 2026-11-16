@@ -7,9 +7,9 @@
 <meta name="mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-<meta name="apple-mobile-web-app-title" content="Represa" />
-<meta name="description" content="Tampe os vazamentos da represa com as mãos, usando a câmera." />
-<title>Represa — Hand Tracking Game</title>
+<meta name="apple-mobile-web-app-title" content="Levanta e Brinca" />
+<meta name="description" content="Jogos para jogar com o corpo, sem tocar na tela: a câmera do celular vê suas mãos." />
+<title>Levanta e Brinca</title>
 
 <!-- PWA -->
 <link rel="manifest" href="manifest.webmanifest" />
@@ -93,13 +93,14 @@
   <!-- ===================== MENU ===================== -->
   <div id="menu" class="screen">
     <div class="panel">
-      <div class="title">💧 REPRESA</div>
-      <p class="lead opacity-90">Tampe os vazamentos com as mãos. 10 cenários, 1 ou 2 jogadores.</p>
+      <div class="title">🙌 LEVANTA E BRINCA</div>
+      <p class="lead opacity-90">Jogos que você joga com as mãos, sem tocar na tela. 1 ou 2 jogadores.</p>
       <p id="status" class="lead text-sky-300">Toque em “Ativar câmera” para começar.</p>
       <button id="btnCam" class="btn btn-primary">📷 Ativar câmera</button>
 
       <div id="menuPlay" class="hidden flex flex-col items-center gap-[2vmin]">
-        <div class="flex flex-wrap gap-3 justify-center">
+        <div class="flex flex-wrap gap-3 justify-center items-center">
+          <span class="hud-label">💧 REPRESA</span>
           <button id="btnCampaign" class="btn btn-play" data-hover>🗺 Campanha</button>
           <button id="btnEndless" class="btn btn-ghost" data-hover>♾ Infinito</button>
         </div>

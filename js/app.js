@@ -1,5 +1,5 @@
 // =============================================================================
-// REPRESA — jogo de hand tracking (MediaPipe) · campanha com 10 cenários · 1–2 jogadores
+// LEVANTA E BRINCA — jogos de hand tracking (MediaPipe) · Represa (10 cenários) + minijogos · 1–2 jogadores
 // =============================================================================
 // Módulos deste arquivo (ordem):
 //   0 Config  1 Estado/utils  2 Canvas  3 Câmera  4 Tracker  5 Input/cursores/jogadores
@@ -74,6 +74,14 @@ let game = null;
 // =============================================================================
 // 2. CANVAS
 // =============================================================================
+// Polyfill: roundRect não existe em iOS < 16 / Chrome < 99
+if (!CanvasRenderingContext2D.prototype.roundRect) {
+  CanvasRenderingContext2D.prototype.roundRect = function (x, y, w, h, r) {
+    r = Math.min(Array.isArray(r) ? r[0] : r, Math.abs(w) / 2, Math.abs(h) / 2);
+    this.moveTo(x + r, y); this.arcTo(x + w, y, x + w, y + h, r); this.arcTo(x + w, y + h, x, y + h, r);
+    this.arcTo(x, y + h, x, y, r); this.arcTo(x, y, x + w, y, r); this.closePath(); return this;
+  };
+}
 const gameCanvas = $('game'), gctx = gameCanvas.getContext('2d');
 const fxCanvas = $('fx'), fctx = fxCanvas.getContext('2d');
 let W = 0, H = 0, MIN = 1, DPR = 1, bgCache = null, bgCacheKey = '';
@@ -858,7 +866,12 @@ function setupPWA() {
   window.addEventListener('online', refreshOfflineStatus); window.addEventListener('offline', refreshOfflineStatus);
   if (!('serviceWorker' in navigator) || !window.isSecureContext) { refreshOfflineStatus(); return; }
   navigator.serviceWorker.register('./sw.js').then((reg) => {
-    const notify = (w) => { pendingWorker = w; show('updateBar'); };
+    const notify = (w) => {
+      pendingWorker = w;
+      // Fora de partida, aplica a atualização sozinho (evita index novo + scripts velhos)
+      if (['boot', 'menu'].includes(state.phase) && !tracker) { userAskedUpdate = true; w.postMessage({ type: 'SKIP_WAITING' }); return; }
+      show('updateBar');
+    };
     if (reg.waiting && navigator.serviceWorker.controller) notify(reg.waiting);
     reg.addEventListener('updatefound', () => { const w = reg.installing; w?.addEventListener('statechange', () => { if (w.state === 'installed' && navigator.serviceWorker.controller) notify(w); if (w.state === 'activated') refreshOfflineStatus(); }); });
     document.addEventListener('visibilitychange', () => { if (!document.hidden) reg.update().catch(() => {}); });
