@@ -219,6 +219,7 @@ function classifyGesture(lm) {
   return { g: 'other', n };
 }
 function updateGesture(c, lm, now) {
+  c.lm = lm;
   const { g, n } = classifyGesture(lm);
   c.fingers = n;
   // Debounce: só troca de gesto depois de 3 leituras iguais (~100 ms), evita tremor
@@ -944,6 +945,7 @@ const miniAPI = {
   },
 };
 import('./minigames.js').then((m) => m.install(miniAPI)).catch((e) => console.warn('minijogos não carregaram', e));
+import('./libras.js').then((m) => m.install(miniAPI)).catch((e) => console.warn('Libras não carregou', e));
 
 window.__represa = { get game() { return game; }, get cursors() { return cursors; }, get state() { return state; }, CONFIG, SCENARIOS, startScenario, startEndless, settings };
 resize(); updateChips(); setupPWA(); requestAnimationFrame(loop);

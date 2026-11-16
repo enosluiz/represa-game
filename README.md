@@ -15,6 +15,8 @@ Jogo em que você tampa vazamentos de uma represa com as mãos, usando a câmera
 - **🎵 Ritmo** — notas descem em 4 pistas; acerte com mão aberta ✋ ou fechada ✊ na pista certa.
 - **✊✋✌ Jokenpô** — melhor de 5 contra o computador ou entre P1 e P2.
 
+- **🤟 Libras (Aprender)** e **🔤 Soletrar** — alfabeto manual: 12 letras estáticas (A B C D F I L O U V W Y) com esquema da mão, dica por dedo ("quase: dobre o anelar") e palavras para soletrar contra o relógio. Fora desta versão: letras com movimento (H J K X Z) e as que dependem da orientação/polegar (E G M N P Q R S T). Os esquemas são aproximações didáticas — valide com instrutor de Libras.
+
 Gestos: contagem de dedos estendidos a partir dos 21 pontos (punho = 0–1, tesoura = indicador+médio, aberta = 4–5). Funciona com a mão de frente para a câmera.
 
 ## Se a mão não é detectada
