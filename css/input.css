@@ -1,0 +1,61 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #0b1220; touch-action: none; }
+  body { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; -webkit-user-select: none; user-select: none; }
+
+  /* Vídeo fica "invisível" mas ativo (display:none faz alguns iPhones pararem de decodificar frames) */
+  #video { position: fixed; width: 1px; height: 1px; opacity: 0; pointer-events: none; left: 0; top: 0; }
+  #game, #fx { position: fixed; inset: 0; display: block; }
+  #fx { z-index: 50; pointer-events: none; }
+
+  /* Tipografia escalável: legível tanto no celular quanto numa TV a 3 m */
+  .title   { font-size: clamp(38px, 10vmin, 120px); line-height: 1; font-weight: 900; letter-spacing: .02em; }
+  .lead    { font-size: clamp(16px, 3.2vmin, 34px); }
+  .hud-label { font-size: clamp(10px, 1.9vmin, 22px); letter-spacing: .12em; opacity: .75; font-weight: 700; }
+  .hud-value { font-size: clamp(22px, 5.2vmin, 72px); font-weight: 900; line-height: 1; font-variant-numeric: tabular-nums; }
+  .hud-box { background: rgba(2, 6, 23, .62); border: 2px solid rgba(255,255,255,.12); border-radius: 1.1rem; padding: .45em .9em; }
+
+  .btn { font-size: clamp(20px, 5vmin, 56px); font-weight: 900; padding: .55em 1.5em; border-radius: 999px; border: 3px solid rgba(255,255,255,.25); }
+  .btn:disabled { opacity: .5; }
+  .btn-primary { background: #0284c7; }
+  .btn-play    { background: #16a34a; box-shadow: 0 0 40px rgba(34,197,94,.55); }
+  .btn-ghost   { background: rgba(255,255,255,.08); }
+  .chip { font-size: clamp(13px, 2.5vmin, 26px); font-weight: 700; padding: .5em 1em; border-radius: 999px; background: rgba(255,255,255,.08); border: 2px solid rgba(255,255,255,.15); }
+
+  /* Barra de progresso do "hover-to-click" (--p vai de 0 a 1) */
+  [data-hover] { position: relative; overflow: hidden; }
+  [data-hover]::after {
+    content: ""; position: absolute; left: 0; top: 0; bottom: 0;
+    width: calc(var(--p, 0) * 100%); background: rgba(255,255,255,.32); pointer-events: none;
+  }
+
+  .bar { height: clamp(12px, 2.6vmin, 30px); border-radius: 999px; background: rgba(255,255,255,.12); overflow: hidden; margin-top: .35em; }
+  .bar-fill { height: 100%; width: 100%; border-radius: 999px; background: linear-gradient(90deg,#0ea5e9,#38bdf8); transition: width .15s linear, background .3s; }
+
+  #center { font-size: clamp(60px, 22vmin, 260px); font-weight: 900; text-shadow: 0 8px 40px rgba(0,0,0,.6); }
+  .pop { animation: pop .9s ease-out forwards; }
+  @keyframes pop { 0% { transform: scale(.4); opacity: 0 } 20% { transform: scale(1.1); opacity: 1 } 70% { opacity: 1 } 100% { transform: scale(1); opacity: 0 } }
+
+  .warn { font-size: clamp(16px, 3.4vmin, 40px); font-weight: 800; }
+
+/* ---- Telas e painéis ---- */
+.screen { position: fixed; inset: 0; z-index: 20; display: flex; align-items: center; justify-content: center; background: rgba(2,6,23,.6); backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px); }
+.screen.hidden { display: none; }
+.panel { width: 94vw; max-width: 64rem; max-height: 94vh; overflow-y: auto; border-radius: 2rem; background: rgba(15,23,42,.88); border: 2px solid rgba(255,255,255,.1); padding: 4vmin; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 2.2vmin; box-shadow: 0 30px 80px rgba(0,0,0,.6); }
+.title-sm { font-size: clamp(26px, 6vmin, 72px); font-weight: 900; line-height: 1.05; }
+.small { font-size: clamp(12px, 2.2vmin, 22px); }
+.stars { font-size: clamp(40px, 12vmin, 140px); line-height: 1; color: #fde047; text-shadow: 0 0 30px rgba(253,224,71,.5); letter-spacing: .05em; }
+.chip-on { background: #0284c7 !important; border-color: #7dd3fc !important; }
+
+/* ---- Grade de cenários ---- */
+.sc-grid { display: grid; grid-template-columns: repeat(5, minmax(0,1fr)); gap: 1.6vmin; width: 100%; }
+@media (max-width: 640px) { .sc-grid { grid-template-columns: repeat(3, minmax(0,1fr)); } }
+.sc-card { position: relative; overflow: hidden; border-radius: 1.2rem; padding: 1.6vmin 1vmin; min-height: 14vmin; border: 2px solid rgba(255,255,255,.18); background: linear-gradient(160deg, var(--c1), var(--c2)); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .4vmin; text-shadow: 0 2px 6px rgba(0,0,0,.7); }
+.sc-card:not(:disabled):active { transform: scale(.97); }
+.sc-num { font-size: clamp(18px, 4.5vmin, 54px); font-weight: 900; color: var(--ac); }
+.sc-name { font-size: clamp(11px, 2.1vmin, 22px); font-weight: 800; line-height: 1.1; }
+.sc-stars { font-size: clamp(11px, 2.2vmin, 24px); color: #fde047; }
+.sc-locked { filter: grayscale(1) brightness(.5); }
+.sc-locked .sc-stars { color: rgba(255,255,255,.6); font-size: clamp(9px, 1.6vmin, 16px); }

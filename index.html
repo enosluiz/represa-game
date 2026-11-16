@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<meta name="theme-color" content="#0b1220" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Represa" />
+<meta name="description" content="Tampe os vazamentos da represa com as mãos, usando a câmera." />
+<title>Represa — Hand Tracking Game</title>
+
+<!-- PWA -->
+<link rel="manifest" href="manifest.webmanifest" />
+<link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png" />
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+<link rel="stylesheet" href="css/app.css" />
+
+<!--
+================================================================================
+ REPRESA — PWA de jogo com rastreamento de mãos (MediaPipe Tasks Vision)
+================================================================================
+
+ ESTRUTURA DO PROJETO
+   index.html            → marcação (HUD, menus)
+   css/app.css           → Tailwind compilado + estilos do jogo (sem CDN)
+   js/app.js             → toda a lógica (módulos descritos abaixo)
+   sw.js                 → service worker: cache offline + atualização
+   manifest.webmanifest  → instalação (ícone, tela cheia, paisagem)
+   vendor/mediapipe/     → MediaPipe Tasks Vision 0.10.14 local (JS + WASM)
+   models/               → (opcional) hand_landmarker.task local; se ausente,
+                           baixa do Google na 1ª vez e o SW guarda no cache
+
+ ARQUITETURA DO JS (js/app.js):
+
+   [Câmera]  getUserMedia → <video> oculto (640x480 @30fps — leve p/ inferência)
+       │
+   [Tracker] HandLandmarker.detectForVideo()  (WASM + WebGL/GPU, fallback CPU)
+       │      → até 2 mãos × 21 landmarks normalizados (0..1)
+       │
+   [Input]   ponto de contato (palma ou indicador) → espelhamento → ganho de
+       │      alcance → coordenadas de tela → suavização adaptativa → "cursores"
+       │
+   [Game]    máquina de estados: boot → menu → countdown → playing ⇄ paused → over
+       │      spawn de furos, vazão, colisão por tempo de cobertura, níveis, combo
+       │
+   [Render]  canvas #game  : parede (cache offscreen), câmera translúcida,
+       │                     furos, partículas de água, inundação, textos
+       │      canvas #fx    : cursores + esqueleto debug (acima de tudo, inclusive
+       │                     dos menus, para o jogador "mirar" nos botões)
+       │      DOM/Tailwind  : HUD e menus (texto nítido, grande, fácil de ajustar)
+       │
+   [UI]      botões com "hover-to-click" (segurar a mão 1,2 s = clique) para
+             jogar sem tocar no celular — essencial quando ele está longe/na TV.
+
+ REQUISITO: câmera e service worker só funcionam em HTTPS (ou http://localhost).
+ Hospedagem rápida: Netlify Drop (arraste a pasta), GitHub Pages ou Vercel.
+================================================================================
+-->
+
+</head>
+
+<body class="text-white">
+  <video id="video" playsinline muted autoplay></video>
+  <canvas id="game"></canvas>
+  <canvas id="fx"></canvas>
+
+  <!-- ===================== HUD ===================== -->
+  <div id="hud" class="fixed top-0 inset-x-0 z-10 hidden">
+    <div class="flex items-stretch justify-between gap-[1.5vmin] px-[2.5vmin] pt-[2vmin]">
+      <div class="hud-box"><div class="hud-label">PONTOS</div><div id="hudScore" class="hud-value">0</div>
+        <div id="hudP" class="hidden hud-label mt-1"><span class="text-sky-300">P1 <b id="hudP1">0</b></span> · <span class="text-orange-300">P2 <b id="hudP2">0</b></span></div>
+      </div>
+      <div class="hud-box flex-1 max-w-[42vw]">
+        <div class="hud-label flex justify-between"><span>RESERVATÓRIO</span><span id="hudWaterPct">100%</span></div>
+        <div class="bar"><div id="hudWater" class="bar-fill"></div></div>
+      </div>
+      <div class="hud-box"><div id="hudLevelLabel" class="hud-label">CENÁRIO</div><div id="hudLevel" class="hud-value">1</div></div>
+      <div class="hud-box"><div class="hud-label">TEMPO</div><div id="hudTime" class="hud-value">0:00</div></div>
+      <button id="btnPause" class="hud-box hud-value px-[2vmin]" aria-label="Pausar">II</button>
+    </div>
+    <div class="flex justify-center mt-[1.5vmin]"><div id="hudCombo" class="hud-box warn text-amber-300 hidden">COMBO x2</div></div>
+  </div>
+
+  <div class="fixed inset-x-0 bottom-[3vmin] z-30 flex flex-col items-center gap-2 pointer-events-none">
+    <div id="handHint" class="hud-box warn hidden">✋ Mostre as mãos para a câmera</div>
+    <div id="lightHint" class="hud-box warn text-amber-300 hidden">💡 Pouca luz — acenda a luz de frente para você</div>
+    <div id="toast" class="hud-box warn hidden"></div>
+  </div>
+  <div class="fixed inset-0 z-40 flex items-center justify-center pointer-events-none"><div id="center"></div></div>
+
+  <!-- ===================== MENU ===================== -->
+  <div id="menu" class="screen">
+    <div class="panel">
+      <div class="title">💧 REPRESA</div>
+      <p class="lead opacity-90">Tampe os vazamentos com as mãos. 10 cenários, 1 ou 2 jogadores.</p>
+      <p id="status" class="lead text-sky-300">Toque em “Ativar câmera” para começar.</p>
+      <button id="btnCam" class="btn btn-primary">📷 Ativar câmera</button>
+
+      <div id="menuPlay" class="hidden flex flex-col items-center gap-[2vmin]">
+        <div class="flex flex-wrap gap-3 justify-center">
+          <button id="btnCampaign" class="btn btn-play" data-hover>🗺 Campanha</button>
+          <button id="btnEndless" class="btn btn-ghost" data-hover>♾ Infinito</button>
+        </div>
+        <div class="flex flex-wrap gap-2 justify-center items-center">
+          <span class="hud-label">JOGADORES</span>
+          <button class="chip" data-players="auto" data-hover>🤖 Automático</button>
+          <button class="chip" data-players="1" data-hover>👤 1</button>
+          <button class="chip" data-players="2" data-hover>👥 2</button>
+        </div>
+      </div>
+
+      <div class="flex flex-wrap gap-2 justify-center">
+        <button id="optFacing" class="chip"></button>
+        <button id="optMirror" class="chip"></button>
+        <button id="optContact" class="chip"></button>
+        <button id="optCamView" class="chip"></button>
+        <button id="optTv" class="chip"></button>
+        <button id="optDebug" class="chip"></button>
+        <button id="optFull" class="chip">⛶ Tela cheia</button>
+        <button id="btnInstall" class="chip hidden !bg-emerald-600/80">⬇ Instalar app</button>
+      </div>
+      <p id="iosHint" class="hidden small text-amber-200">📲 Para instalar no iPhone: Compartilhar <b>⎋</b> → “Adicionar à Tela de Início”.</p>
+      <div id="updateBar" class="hidden flex items-center gap-3 rounded-2xl bg-sky-900/70 border border-sky-400/40 px-4 py-2">
+        <span class="small">✨ Nova versão disponível</span><button id="btnUpdate" class="chip !bg-sky-600">Atualizar</button>
+      </div>
+      <p id="netStatus" class="small opacity-70"></p>
+      <p class="small opacity-70 max-w-3xl">Sem tocar na tela: segure a mão sobre um botão por ~1 s. Em 2 jogadores, quem entra pela esquerda é P1 e pela direita, P2. Recordes: <b id="bestMenu"></b></p>
+    </div>
+  </div>
+
+  <!-- ===================== SELEÇÃO DE CENÁRIO ===================== -->
+  <div id="select" class="screen hidden">
+    <div class="panel">
+      <div class="title-sm">ESCOLHA O CENÁRIO</div>
+      <div id="scGrid" class="sc-grid"></div>
+      <button id="btnSelBack" class="btn btn-ghost" data-hover>← Menu</button>
+    </div>
+  </div>
+
+  <!-- ===================== INTRO DO CENÁRIO ===================== -->
+  <div id="intro" class="screen hidden">
+    <div class="panel">
+      <div id="introTag" class="hud-label"></div>
+      <div id="introName" class="title"></div>
+      <p id="introTip" class="lead text-amber-200"></p>
+      <p id="introPlayers" class="lead opacity-85"></p>
+      <button id="introBtn" class="btn btn-play" data-hover>▶ Começar</button>
+    </div>
+  </div>
+
+  <!-- ===================== PAUSA ===================== -->
+  <div id="pause" class="screen hidden">
+    <div class="panel">
+      <div class="title">PAUSA</div>
+      <div class="flex flex-wrap gap-4 justify-center">
+        <button id="btnResume" class="btn btn-play" data-hover>▶ Continuar</button>
+        <button id="btnQuit" class="btn btn-ghost" data-hover>Menu</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== RESULTADO (cenário vencido) ===================== -->
+  <div id="result" class="screen hidden">
+    <div class="panel">
+      <div class="hud-label">CENÁRIO CONCLUÍDO</div>
+      <div id="resName" class="title-sm"></div>
+      <div id="resStars" class="stars"></div>
+      <div id="resStats" class="lead opacity-85"></div>
+      <div id="resPlayers" class="lead text-amber-200"></div>
+      <div class="flex flex-wrap gap-4 justify-center">
+        <button id="btnNext" class="btn btn-play" data-hover>▶ Próximo cenário</button>
+        <button id="btnResMenu" class="btn btn-ghost" data-hover>Menu</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== GAME OVER ===================== -->
+  <div id="gameover" class="screen hidden">
+    <div class="panel">
+      <div id="goTitle" class="title text-sky-300">A REPRESA SECOU!</div>
+      <div class="hud-value" id="goScore">0</div>
+      <div class="lead opacity-85" id="goStats"></div>
+      <div class="lead text-amber-300" id="goBest"></div>
+      <div class="flex flex-wrap gap-4 justify-center">
+        <button id="btnAgain" class="btn btn-play" data-hover>↻ Tentar de novo</button>
+        <button id="btnMenu" class="btn btn-ghost" data-hover>Menu</button>
+      </div>
+    </div>
+  </div>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>

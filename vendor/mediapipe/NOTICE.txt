@@ -1,0 +1,2 @@
+MediaPipe Tasks Vision 0.10.14 (Google LLC) — Apache License 2.0
+Fonte: https://www.npmjs.com/package/@mediapipe/tasks-vision
