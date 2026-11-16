@@ -126,6 +126,17 @@ export function install(api) {
     start() {
       this.t = 0; this.score = 0; this.coins = 0; this.lives = 3; this.speed = 0.55; this.dist = 0; this.objs = []; this.spawnZ = 0;
       this.lane = 1, this.laneX = 1; this.jump = 0; this.duck = 0; this.pose = 'run'; this.power = { shield: 0, magnet: 0, x2: 0 }; this.inv = 0; this.fx = [];
+      // Tutorial interativo: cada passo só avança quando a câmera vê o movimento
+      this.tut = { step: 0, hold: 0, done: false, flash: 0 };
+      this.TUT = [
+        { text: 'Mostre a mão para a câmera', test: (c) => !!c },
+        { text: 'Mão para a ESQUERDA ◀', test: (c, nx) => c && nx < 0.38 },
+        { text: 'Mão para a DIREITA ▶', test: (c, nx) => c && nx > 0.62 },
+        { text: 'Mão no CENTRO', test: (c, nx) => c && nx >= 0.38 && nx <= 0.62 },
+        { text: 'LEVANTE a mão para PULAR ☝', test: (c, nx, ny) => c && ny < 0.32 },
+        { text: 'ABAIXE a mão para AGACHAR 👇', test: (c, nx, ny) => c && ny > 0.78 },
+        { text: 'Mão no meio da tela para começar', test: (c, nx, ny) => c && ny >= 0.32 && ny <= 0.78 },
+      ];
       show('hud'); setText('hudScore', '0'); setText('hudLevelLabel', 'VIDAS'); setText('hudLevel', '❤❤❤'); setText('hudTime', '0 m'); hide('hudCombo'); hide('hudP');
     },
     spawn() {
@@ -153,6 +164,14 @@ export function install(api) {
       if (this.jump > 0) { this.jump -= dt; if (this.jump <= 0) this.pose = 'run'; }
       else this.pose = this.wantDuck ? 'duck' : 'run';
       this.laneX = lerp(this.laneX, this.lane, 1 - Math.pow(0.001, dt));
+      // ---- Tutorial: sem obstáculos até concluir
+      if (!this.tut.done) {
+        const st = this.TUT[this.tut.step], nx = c ? api.cx(c) / W : -1, ny = c ? c.y / H : -1;
+        this.tut.flash = Math.max(0, this.tut.flash - dt * 2);
+        if (st.test(c, nx, ny)) { this.tut.hold += dt; if (this.tut.hold >= 0.5) { this.tut.hold = 0; this.tut.step++; this.tut.flash = 1; sfx.patch(this.tut.step); if (this.tut.step >= this.TUT.length) { this.tut.done = true; banner('VAI! 🏃'); sfx.level(); } } }
+        else this.tut.hold = Math.max(0, this.tut.hold - dt);
+        this.t = 0; return;
+      }
       // ---- Mundo
       this.speed = Math.min(1.4, 0.55 + this.t * 0.012); this.dist += this.speed * 12 * dt;
       for (const k in this.power) this.power[k] = Math.max(0, this.power[k] - dt);
@@ -220,7 +239,22 @@ export function install(api) {
       // Guia de controle (zonas)
       ctx.strokeStyle = 'rgba(255,255,255,.25)'; ctx.setLineDash([6, 8]); ctx.lineWidth = 2;
       ctx.beginPath(); ctx.moveTo(0, H * 0.32); ctx.lineTo(W, H * 0.32); ctx.moveTo(0, H * 0.78); ctx.lineTo(W, H * 0.78); ctx.moveTo(W * 0.38, H * 0.32); ctx.lineTo(W * 0.38, H * 0.78); ctx.moveTo(W * 0.62, H * 0.32); ctx.lineTo(W * 0.62, H * 0.78); ctx.stroke(); ctx.setLineDash([]);
-      if (this.t < 6) { label(ctx, '☝ mão no alto = PULAR', W / 2, H * 0.26, MIN * 0.04, '#1e3a8a'); label(ctx, '👇 mão embaixo = ABAIXAR', W / 2, H * 0.84, MIN * 0.04, '#1e3a8a'); label(ctx, '◀', W * 0.2, H * 0.55, MIN * 0.08, 'rgba(255,255,255,.7)'); label(ctx, '▶', W * 0.8, H * 0.55, MIN * 0.08, 'rgba(255,255,255,.7)'); }
+      // Rótulos permanentes das zonas de controle (discretos durante a corrida, fortes no tutorial)
+      const strong = !this.tut.done, zc = strong ? '#fff' : 'rgba(255,255,255,.55)', zs = MIN * (strong ? 0.045 : 0.03);
+      label(ctx, '☝ PULAR', W / 2, H * 0.27, zs, zc); label(ctx, '👇 AGACHAR', W / 2, H * 0.83, zs, zc);
+      label(ctx, '◀ ESQUERDA', W * 0.19, H * 0.5, zs, zc); label(ctx, 'DIREITA ▶', W * 0.81, H * 0.5, zs, zc);
+      if (!this.tut.done) {
+        const st = this.TUT[this.tut.step];
+        ctx.fillStyle = 'rgba(2,6,23,.75)'; ctx.beginPath(); ctx.roundRect(W * 0.15, H * 0.36, W * 0.7, H * 0.26, MIN * 0.03); ctx.fill();
+        label(ctx, `TUTORIAL ${this.tut.step + 1}/${this.TUT.length}`, W / 2, H * 0.42, MIN * 0.035, '#93c5fd');
+        label(ctx, st.text, W / 2, H * 0.5, MIN * 0.06, this.tut.flash > 0 ? '#4ade80' : '#fde047');
+        ctx.fillStyle = 'rgba(255,255,255,.2)'; ctx.fillRect(W * 0.3, H * 0.57, W * 0.4, MIN * 0.02); ctx.fillStyle = '#4ade80'; ctx.fillRect(W * 0.3, H * 0.57, W * 0.4 * clamp(this.tut.hold / 0.5, 0, 1), MIN * 0.02);
+        // Destaque da zona pedida
+        ctx.fillStyle = 'rgba(253,224,71,.18)';
+        if (this.tut.step === 1) ctx.fillRect(0, H * 0.32, W * 0.38, H * 0.46); if (this.tut.step === 2) ctx.fillRect(W * 0.62, H * 0.32, W * 0.38, H * 0.46);
+        if (this.tut.step === 3 || this.tut.step === 6) ctx.fillRect(W * 0.38, H * 0.32, W * 0.24, H * 0.46);
+        if (this.tut.step === 4) ctx.fillRect(0, 0, W, H * 0.32); if (this.tut.step === 5) ctx.fillRect(0, H * 0.78, W, H * 0.22);
+      }
       for (const f of this.fx) label(ctx, f.text, pp.x, y - h - s * 0.6 - (0.6 - f.life) * s, MIN * 0.05, '#facc15');
     },
     finish() { api.endMini({ title: 'FIM DA CORRIDA!', score: Math.floor(this.score), bestKey: 'bestCorredor', stats: `${Math.floor(this.dist)} m · ${this.coins} moedas · ${fmtTime(this.t)}` }); },
