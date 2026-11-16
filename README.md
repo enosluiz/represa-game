@@ -17,6 +17,9 @@ Jogo em que você tampa vazamentos de uma represa com as mãos, usando a câmera
 
 - **🤟 Libras (Aprender)** e **🔤 Soletrar** — alfabeto manual: 12 letras estáticas (A B C D F I L O U V W Y) com esquema da mão, dica por dedo ("quase: dobre o anelar") e palavras para soletrar contra o relógio. Fora desta versão: letras com movimento (H J K X Z) e as que dependem da orientação/polegar (E G M N P Q R S T). Os esquemas são aproximações didáticas — valide com instrutor de Libras.
 
+- **🥁 Bateria no Ar** — 7 peças; bater = entrar na peça com a mão descendo rápido. 20 s de toque livre, depois Desafio de 60 s (peças acendem no ritmo, pontos por precisão). Sons sintetizados (sem arquivos).
+- **🏃 Corredor** — 3 pistas controladas pela mão: esquerda/centro/direita = pista, mão no alto = pular, mão embaixo = abaixar. Moedas, poderes (escudo, ímã, ×2), obstáculos (barreira: pule; viga: abaixe; muro: troque de pista), 3 vidas, velocidade crescente. *Controle pelo corpo (pose) fica para uma etapa futura.*
+
 Gestos: contagem de dedos estendidos a partir dos 21 pontos (punho = 0–1, tesoura = indicador+médio, aberta = 4–5). Funciona com a mão de frente para a câmera.
 
 ## Se a mão não é detectada
