@@ -15,81 +15,169 @@ export function install(api) {
   }
   function bg(ctx, a, b) { const g = ctx.createLinearGradient(0, 0, 0, api.H); g.addColorStop(0, a); g.addColorStop(1, b); ctx.fillStyle = g; ctx.fillRect(0, 0, api.W, api.H); }
 
-  // Velocidade dos cursores (px/s), calculada aqui a partir das posições
-  // Histórico curto de posições por cursor → velocidade média dos últimos ~200 ms
-  // (robusto à detecção a 30 fps e à suavização do cursor)
-  const vel = new Map();
-  function updateVel(dt, now) {
-    const seen = new Set();
-    for (const c of api.cursors) {
-      seen.add(c.id); let p = vel.get(c.id); if (!p) { p = { hist: [], vx: 0, vy: 0 }; vel.set(c.id, p); }
-      p.hist.push({ t: now, x: api.cx(c), y: c.y }); while (p.hist.length > 2 && now - p.hist[0].t > 200) p.hist.shift();
-      const a = p.hist[0], b = p.hist[p.hist.length - 1], span = Math.max(16, b.t - a.t) / 1000;
-      p.vx = (b.x - a.x) / span; p.vy = (b.y - a.y) / span; p.dy = b.y - a.y;
-    }
-    for (const id of vel.keys()) if (!seen.has(id)) vel.delete(id);
+  // ===========================================================================
+  // 1. BATERIA — tocada com os DEDOS (até 10 baquetas: 5 dedos × 2 mãos)
+  // ---------------------------------------------------------------------------
+  // Cada ponta de dedo é uma baqueta. O toque é o gesto de "batucar na mesa":
+  // o dedo dobra rápido. Medimos a extensão de cada dedo em proporção ao tamanho da
+  // palma (vale perto ou longe da câmera) e disparamos quando ela cai depressa.
+  // A peça tocada é a que está sob a ponta daquele dedo. O golpe com a mão inteira
+  // (descer a mão rápido) também vale, pelas pontas do indicador e do médio.
+  // ===========================================================================
+  const FINGERS = [
+    { name: 'Polegar', short: 'P', tip: 4, color: '#f87171' },
+    { name: 'Indicador', short: 'I', tip: 8, color: '#fb923c' },
+    { name: 'Médio', short: 'M', tip: 12, color: '#facc15' },
+    { name: 'Anelar', short: 'A', tip: 16, color: '#4ade80' },
+    { name: 'Mínimo', short: 'm', tip: 20, color: '#60a5fa' },
+  ];
+  // DROP = queda mínima de extensão (em palmas) para contar como toque. NOISE_K = quantas vezes o
+  // tremor medido daquele dedo a queda precisa superar (limiar adaptativo à qualidade da câmera).
+  const TAP = { DROP: 0.16, DROP_THUMB: 0.13, NOISE_K: 6, SMOOTH: 0.75, WINDOW_MS: 260, REARM: 0.07, MIN_GAP_MS: 110, PAD_GAP_MS: 70 };
+  const HAND_LINKS = [[0, 1], [1, 2], [2, 3], [3, 4], [0, 5], [5, 6], [6, 7], [7, 8], [5, 9], [9, 10], [10, 11], [11, 12], [9, 13], [13, 14], [14, 15], [15, 16], [13, 17], [17, 18], [18, 19], [19, 20], [0, 17]];
+
+  /** Extensão de cada dedo normalizada pela palma (0 = dobrado, ~1.6+ = esticado). */
+  function fingerExt(lm) {
+    // Landmarks vêm normalizados por largura e altura da imagem separadamente: corrigimos
+    // pela proporção real da câmera (ex.: 4:3) para medir distâncias de verdade.
+    const v = document.getElementById('video'), asp = v && v.videoHeight ? v.videoWidth / v.videoHeight : 4 / 3;
+    const d = (a, b) => Math.hypot((lm[a].x - lm[b].x) * asp, lm[a].y - lm[b].y);
+    const palm = d(0, 9) || 1e-6;
+    return [d(4, 9) / palm, d(8, 0) / palm, d(12, 0) / palm, d(16, 0) / palm, d(20, 0) / palm];
   }
 
-  // ===========================================================================
-  // 1. BATERIA
-  // ===========================================================================
-  const drumSounds = {
-    kick:  () => { tone(150, 0.25, 'sine', 0.5, 0, 45); noise(0.05, 0.2); },
-    snare: () => { tone(200, 0.12, 'triangle', 0.25); noise(0.18, 0.5); },
-    hihat: () => hat(0.06),
-    openhat: () => hat(0.3),
-    tom1:  () => tone(220, 0.3, 'sine', 0.4, 0, 120),
-    tom2:  () => tone(160, 0.35, 'sine', 0.4, 0, 80),
-    crash: () => { noise(1.0, 0.35); tone(900, 0.6, 'square', 0.03); },
-  };
-  function hat(dur) { // ruído com filtro passa-alta
-    if (!window.__actx) { /* usa o noise comum se não houver contexto exposto */ }
-    noise(dur, 0.25);
+  // ---- Síntese de bateria (Web Audio): sem arquivos, sem atraso perceptível ----
+  let noiseBuf = null;
+  function getNoise(ac) {
+    if (noiseBuf && noiseBuf.sampleRate === ac.sampleRate) return noiseBuf;
+    noiseBuf = ac.createBuffer(1, ac.sampleRate, ac.sampleRate); const d = noiseBuf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1; return noiseBuf;
   }
+  function env(ac, node, t, peak, dur) { node.gain.setValueAtTime(peak, t); node.gain.exponentialRampToValueAtTime(0.0008, t + dur); }
+  function noiseHit(ac, out, t, { type = 'highpass', freq = 6000, q = 0.7, peak = 0.6, dur = 0.08 }) {
+    const s = ac.createBufferSource(); s.buffer = getNoise(ac); const f = ac.createBiquadFilter(); f.type = type; f.frequency.value = freq; f.Q.value = q;
+    const g = ac.createGain(); env(ac, g, t, peak, dur); s.connect(f).connect(g).connect(out); s.start(t, Math.random() * 0.5); s.stop(t + dur + 0.05);
+  }
+  function toneHit(ac, out, t, { wave = 'sine', f0 = 150, f1 = 50, sweep = 0.12, peak = 0.9, dur = 0.4 }) {
+    const o = ac.createOscillator(), g = ac.createGain(); o.type = wave; o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(f1, t + sweep);
+    env(ac, g, t, peak, dur); o.connect(g).connect(out); o.start(t); o.stop(t + dur + 0.05);
+  }
+  function playDrum(id, vol = 1) {
+    const ac = api.actx; if (!ac) return;
+    const t = ac.currentTime, out = ac.createGain(); out.gain.value = 0.5 + 0.5 * vol; out.connect(ac.destination);
+    if (id === 'kick') { toneHit(ac, out, t, { f0: 165, f1: 42, sweep: 0.11, peak: 1, dur: 0.45 }); noiseHit(ac, out, t, { type: 'lowpass', freq: 2500, peak: 0.35, dur: 0.012 }); }
+    else if (id === 'snare') { noiseHit(ac, out, t, { type: 'highpass', freq: 1300, peak: 0.75, dur: 0.2 }); toneHit(ac, out, t, { wave: 'triangle', f0: 200, f1: 165, sweep: 0.05, peak: 0.5, dur: 0.12 }); }
+    else if (id === 'hihat') noiseHit(ac, out, t, { type: 'highpass', freq: 7500, peak: 0.45, dur: 0.055 });
+    else if (id === 'openhat') noiseHit(ac, out, t, { type: 'highpass', freq: 6500, peak: 0.42, dur: 0.38 });
+    else if (id === 'tom1') { toneHit(ac, out, t, { f0: 240, f1: 160, sweep: 0.18, peak: 0.85, dur: 0.38 }); noiseHit(ac, out, t, { type: 'bandpass', freq: 900, peak: 0.12, dur: 0.05 }); }
+    else if (id === 'tom2') { toneHit(ac, out, t, { f0: 150, f1: 92, sweep: 0.22, peak: 0.95, dur: 0.5 }); noiseHit(ac, out, t, { type: 'bandpass', freq: 600, peak: 0.12, dur: 0.06 }); }
+    else if (id === 'crash') { noiseHit(ac, out, t, { type: 'highpass', freq: 4200, peak: 0.55, dur: 1.5 }); noiseHit(ac, out, t, { type: 'bandpass', freq: 9000, q: 1.5, peak: 0.25, dur: 0.9 }); }
+  }
+
   const drums = {
-    name: 'Bateria no Ar', DURATION: 60,
+    name: 'Bateria no Ar', DURATION: 60, hideCursors: true,
+    // Duas fileiras na faixa onde as mãos descansam; peças grandes para os dedos de
+    // uma mão alcançarem 2 a 3 peças sem mover o braço. ry = altura relativa da elipse.
     PADS: [
-      { id: 'crash', label: 'CRASH', color: '#fbbf24', pos: [0.12, 0.3], r: 0.11 },
-      { id: 'tom1', label: 'TOM', color: '#f87171', pos: [0.3, 0.26], r: 0.1 },
-      { id: 'hihat', label: 'CHIMBAL', color: '#facc15', pos: [0.5, 0.22], r: 0.1 },
-      { id: 'tom2', label: 'SURDO', color: '#fb923c', pos: [0.7, 0.26], r: 0.1 },
-      { id: 'openhat', label: 'PRATO', color: '#fde68a', pos: [0.88, 0.3], r: 0.11 },
-      { id: 'snare', label: 'CAIXA', color: '#e5e7eb', pos: [0.3, 0.62], r: 0.13 },
-      { id: 'kick', label: 'BUMBO', color: '#60a5fa', pos: [0.7, 0.62], r: 0.15 },
+      { id: 'crash', label: 'CRASH', color: '#fbbf24', pos: [0.12, 0.36], r: 0.125 },
+      { id: 'hihat', label: 'CHIMBAL', color: '#fde047', pos: [0.31, 0.33], r: 0.12 },
+      { id: 'tom1', label: 'TOM', color: '#f87171', pos: [0.5, 0.31], r: 0.115 },
+      { id: 'tom2', label: 'SURDO', color: '#fb923c', pos: [0.69, 0.33], r: 0.12 },
+      { id: 'openhat', label: 'PRATO', color: '#fde68a', pos: [0.88, 0.36], r: 0.125 },
+      { id: 'snare', label: 'CAIXA', color: '#e5e7eb', pos: [0.37, 0.67], r: 0.155 },
+      { id: 'kick', label: 'BUMBO', color: '#60a5fa', pos: [0.63, 0.67], r: 0.17 },
     ],
+    PAD_RY: 0.78,
     start() {
-      this.t = 0; this.hits = 0; this.score = 0; this.maxCombo = 0; this.flash = {}; this.inside = new Map(); this.lastPos = new Map(); this.challenge = false; this.seq = []; this.seqT = 0; this.combo = 0; this.beat = true;
+      this.t = 0; this.hits = 0; this.score = 0; this.maxCombo = 0; this.combo = 0; this.flash = {}; this.padLast = {};
+      this.challenge = false; this.seq = []; this.modeTimer = 20; this.fx = null;
+      this.fing = new Map();   // por mão (cursor id): estado de cada dedo
+      this.tips = [];          // pontas visíveis neste quadro (para desenhar)
+      this.panel = { 1: [0, 0, 0, 0, 0], 2: [0, 0, 0, 0, 0] }; // brilho das luzes por dedo
+      this.fingerHits = [0, 0, 0, 0, 0];
       this.pattern = ['kick', 'hihat', 'snare', 'hihat', 'kick', 'kick', 'snare', 'openhat'];
       show('hud'); setText('hudScore', '0'); setText('hudLevelLabel', 'BATIDAS'); setText('hudLevel', '0'); setText('hudTime', 'LIVRE'); hide('hudCombo'); hide('hudP');
-      banner('Toque livre! Bata nas peças');
-      this.modeTimer = 20; // depois de 20 s de toque livre entra o desafio
+      banner('Batuque com os dedos!');
     },
-    padAt(x, y) { const MIN = api.MIN; for (const p of this.PADS) if (Math.hypot(p.pos[0] * api.W - x, p.pos[1] * api.H - y) < p.r * MIN * 1.1) return p; return null; },
-    hit(pad, by) {
-      drumSounds[pad.id](); this.flash[pad.id] = 1; this.hits++;
-      emit(pad.pos[0] * api.W, pad.pos[1] * api.H, 10, 'dust');
+    /** Peça sob o ponto (elipse igual à desenhada, com 15% de folga). */
+    padAt(x, y) {
+      const MIN = api.MIN; let best = null, bd = Infinity;
+      for (const p of this.PADS) {
+        const dx = (x - p.pos[0] * api.W) / (p.r * MIN * 1.15), dy = (y - p.pos[1] * api.H) / (p.r * MIN * this.PAD_RY * 1.15), d = dx * dx + dy * dy;
+        if (d <= 1 && d < bd) { bd = d; best = p; }
+      }
+      return best;
+    },
+    hit(pad, by, vol, finger, now) {
+      if (now - (this.padLast[pad.id] || 0) < TAP.PAD_GAP_MS) return false; // mesmo golpe lido 2× (dedo + mão)
+      this.padLast[pad.id] = now;
+      playDrum(pad.id, vol); this.flash[pad.id] = 1; this.hits++;
+      if (finger != null) this.fingerHits[finger]++;
+      emit(pad.pos[0] * api.W, pad.pos[1] * api.H, 6 + Math.round(vol * 8), 'dust');
       if (this.challenge) {
         const tReal = this.t - (api.settings.tvMode ? 0.15 : 0.05);
         const due = this.seq.find((n) => !n.done && Math.abs(n.at - tReal) < 0.25 && n.id === pad.id);
-        if (due) { due.done = true; this.combo++; this.maxCombo = Math.max(this.maxCombo, this.combo); const pts = Math.round((Math.abs(due.at - this.t) < 0.1 ? 200 : 100) * (1 + Math.min(this.combo, 10) * 0.1)); this.score += pts; this.fx = { text: `+${pts}`, x: pad.pos[0] * api.W, y: pad.pos[1] * api.H - pad.r * api.MIN, life: 1 }; }
-        else { this.combo = 0; }
+        if (due) { due.done = true; this.combo++; this.maxCombo = Math.max(this.maxCombo, this.combo); const pts = Math.round((Math.abs(due.at - tReal) < 0.1 ? 200 : 100) * (1 + Math.min(this.combo, 10) * 0.1)); this.score += pts; this.fx = { text: `+${pts}`, x: pad.pos[0] * api.W, y: pad.pos[1] * api.H - pad.r * api.MIN, life: 1 }; }
+        else this.combo = 0;
       }
       setText('hudLevel', String(this.hits)); setText('hudScore', this.score.toLocaleString('pt-BR'));
+      return true;
+    },
+    /** Lê os dedos de cada mão e dispara toques. */
+    readFingers(now) {
+      const MIN = api.MIN; this.tips = [];
+      const seen = new Set();
+      for (const c of api.cursors) {
+        if (!c.lm) continue; seen.add(c.id);
+        let F = this.fing.get(c.id);
+        if (!F) { F = { lmRef: null, fingers: FINGERS.map(() => ({ hist: [], armed: true, trough: 0, last: 0, sx: null, sy: null, flash: 0, es: null, noise: 0.015 })), wrist: [] }; this.fing.set(c.id, F); }
+        const fresh = F.lmRef !== c.lm; F.lmRef = c.lm;
+        const lm = c.lm, ext = fresh ? fingerExt(lm) : null;
+        // Golpe com a mão inteira: velocidade do punho na tela
+        const w = api.toScreen(lm[0]);
+        if (fresh) { F.wrist.push({ t: now, y: w.y }); while (F.wrist.length > 2 && now - F.wrist[0].t > 180) F.wrist.shift(); }
+        const wa = F.wrist[0], wb = F.wrist[F.wrist.length - 1], handVy = wa && wb && wb.t > wa.t ? (wb.y - wa.y) / ((wb.t - wa.t) / 1000) : 0;
+        const handStrike = handVy > MIN * 1.6;
+        FINGERS.forEach((fg, i) => {
+          const st = F.fingers[i], p = api.toScreen(lm[fg.tip]);
+          // suaviza levemente a ponta na tela (o ponto treme alguns px)
+          st.sx = st.sx == null ? p.x : st.sx + (p.x - st.sx) * 0.6; st.sy = st.sy == null ? p.y : st.sy + (p.y - st.sy) * 0.6;
+          st.flash = Math.max(0, st.flash - 0.06);
+          const pad = this.padAt(st.sx, st.sy);
+          if (fresh) {
+            // Suaviza a extensão e mede o tremor do dedo (média do |Δ| entre quadros, só quando não há queda grande)
+            const raw = ext[i], prevE = st.es; st.es = prevE == null ? raw : prevE + (raw - prevE) * TAP.SMOOTH;
+            const e = st.es, step = prevE == null ? 0 : Math.abs(e - prevE);
+            // só conta como tremor o que parece repouso (rejeita os próprios toques e retornos)
+            if (step < st.noise * 3 + 0.012 && now - st.last > 350) st.noise = clamp(st.noise + (step - st.noise) * 0.05, 0.008, 0.05);
+            st.hist.push({ t: now, e }); while (st.hist.length > 2 && now - st.hist[0].t > TAP.WINDOW_MS) st.hist.shift();
+            const peak = Math.max(...st.hist.map((h) => h.e)), drop = peak - e;
+            const need = Math.max(i === 0 ? TAP.DROP_THUMB : TAP.DROP, st.noise * TAP.NOISE_K);
+            if (!st.armed && e > st.trough + TAP.REARM) st.armed = true;
+            if (!st.armed) st.trough = Math.min(st.trough, e);
+            // 1) toque de dedo: flexão rápida
+            if (st.armed && drop > need && now - st.last > TAP.MIN_GAP_MS) {
+              st.armed = false; st.trough = e; st.last = now; st.flash = 1; this.panel[c.player][i] = 1;
+              if (pad) this.hit(pad, c.player, clamp((drop - need) / 0.3 + 0.35, 0.35, 1), i, now);
+            }
+            // 2) golpe da mão inteira: vale pelas pontas do indicador e do médio
+            else if (handStrike && (i === 1 || i === 2) && pad && now - st.last > TAP.MIN_GAP_MS) {
+              st.last = now; st.flash = 1; this.panel[c.player][i] = 1;
+              this.hit(pad, c.player, clamp(handVy / (MIN * 3), 0.4, 1), i, now);
+            }
+          }
+          this.tips.push({ x: st.sx, y: st.sy, color: fg.color, flash: st.flash, over: !!pad, player: c.player });
+        });
+      }
+      for (const id of this.fing.keys()) if (!seen.has(id)) this.fing.delete(id);
     },
     update(dt) {
-      const MIN = api.MIN; this.t += dt; updateVel(dt, performance.now());
+      const MIN = api.MIN, now = performance.now(); this.t += dt;
       for (const k in this.flash) this.flash[k] = Math.max(0, this.flash[k] - dt * 4);
-      // Detecta "batida": entrar na peça com velocidade vertical > limiar (para baixo)
-      for (const c of api.cursors) {
-        const v = vel.get(c.id), was = this.inside.get(c.id), x = api.cx(c), y = c.y, prev = this.lastPos.get(c.id);
-        // Testa também o ponto médio do deslocamento: batidas rápidas podem cruzar a peça entre duas amostras
-        const pad = this.padAt(x, y) || (prev ? this.padAt((prev.x + x) / 2, (prev.y + y) / 2) : null);
-        if (pad && pad.id !== was && v && (v.vy > MIN * 0.35 || v.dy > pad.r * MIN * 0.5)) this.hit(pad, c.player);
-        const here = this.padAt(x, y); this.inside.set(c.id, here && !(v && v.vy < -MIN * 0.15) ? here.id : null); this.lastPos.set(c.id, { x, y }); // mão subindo 'sai' da peça
-      }
+      for (const p of [1, 2]) this.panel[p] = this.panel[p].map((v) => Math.max(0, v - dt * 2.5));
+      this.readFingers(now);
       if (this.fx) { this.fx.life -= dt; this.fx.y -= MIN * 0.1 * dt; if (this.fx.life <= 0) this.fx = null; }
-      // Modo desafio: gera sequência no ritmo
-      if (!this.challenge) { this.modeTimer -= dt; if (this.modeTimer <= 0) { this.challenge = true; this.seqStart = this.t + 2; banner('🎯 DESAFIO: siga o ritmo'); sfx.level(); setText('hudTime', fmtTime(this.DURATION)); } }
+      if (!this.challenge) { this.modeTimer -= dt; if (this.modeTimer <= 0) { this.challenge = true; this.seqStart = this.t + 2; banner('DESAFIO: siga o ritmo'); sfx.level(); setText('hudTime', fmtTime(this.DURATION)); } }
       else {
         const beat = 60 / 96, elapsed = this.t - this.seqStart;
         if (elapsed >= this.DURATION) return this.finish();
@@ -97,34 +185,64 @@ export function install(api) {
         while (this.seq.length < Math.floor((elapsed + 2.5) / beat) + 1) { const i = this.seq.length; this.seq.push({ id: this.pattern[i % this.pattern.length], at: this.seqStart + i * beat, done: false }); }
         for (const n of this.seq) if (!n.done && !n.missed && this.t - n.at > 0.25) { n.missed = true; this.combo = 0; }
         this.seq = this.seq.filter((n) => this.t - n.at < 1);
-        if (Math.floor(elapsed / beat) !== Math.floor((elapsed - dt) / beat) && elapsed >= 0) tone(Math.floor(elapsed / beat) % 4 === 0 ? 1200 : 900, 0.03, 'square', 0.03); // metrônomo
+        if (Math.floor(elapsed / beat) !== Math.floor((elapsed - dt) / beat) && elapsed >= 0) tone(Math.floor(elapsed / beat) % 4 === 0 ? 1200 : 900, 0.03, 'square', 0.03);
       }
     },
     render(ctx, t) {
       const W = api.W, H = api.H, MIN = api.MIN;
       bg(ctx, '#111827', '#030712');
-      // Palco de madeira com holofotes coloridos e névoa
       ctx.save(); ctx.globalAlpha = 0.9; ctx.fillStyle = texture(ctx, 'wood', 256, 9); ctx.fillRect(0, H * 0.15, W, H); ctx.restore();
-      ctx.fillStyle = 'rgba(0,0,0,.45)'; ctx.fillRect(0, H * 0.15, W, H);
+      ctx.fillStyle = 'rgba(0,0,0,.5)'; ctx.fillRect(0, H * 0.15, W, H);
       spotlight(ctx, W * 0.3, 0, H * 1.1, 'rgba(244,63,94,.18)'); spotlight(ctx, W * 0.7, 0, H * 1.1, 'rgba(59,130,246,.18)'); spotlight(ctx, W * 0.5, H * 0.1, H * 0.9, 'rgba(255,255,255,.12)');
-      ctx.fillStyle = 'rgba(255,255,255,.05)'; ctx.beginPath(); ctx.ellipse(W / 2, H * 0.55, W * 0.48, H * 0.42, 0, 0, Math.PI * 2); ctx.fill();
       vignette(ctx, W, H, 0.5);
+      // Peças
       for (const p of this.PADS) {
-        const x = p.pos[0] * W, y = p.pos[1] * H, r = p.r * MIN, f = this.flash[p.id] || 0;
+        const x = p.pos[0] * W, y = p.pos[1] * H, r = p.r * MIN, ry = this.PAD_RY, f = this.flash[p.id] || 0, s = 1 + f * 0.08;
         const due = this.challenge && this.seq.find((n) => !n.done && n.id === p.id && n.at - this.t < 0.6 && n.at - this.t > -0.25);
-        // Sombra, aro, pele
-        ctx.fillStyle = 'rgba(0,0,0,.4)'; ctx.beginPath(); ctx.ellipse(x, y + r * 0.15, r * 1.05, r * 0.6, 0, 0, Math.PI * 2); ctx.fill();
-        const pg = ctx.createRadialGradient(x - r * 0.3, y - r * 0.25, r * 0.05, x, y, r); pg.addColorStop(0, '#ffffff'), pg.addColorStop(0.25, p.color), pg.addColorStop(1, 'rgba(0,0,0,.6)');
-        ctx.fillStyle = pg; ctx.beginPath(); ctx.ellipse(x, y, r * (1 + f * 0.1), r * 0.55 * (1 + f * 0.1), 0, 0, Math.PI * 2); ctx.fill();
-        ctx.strokeStyle = f > 0 ? '#fff' : 'rgba(0,0,0,.35)'; ctx.lineWidth = Math.max(3, r * 0.08 + f * r * 0.1); ctx.stroke();
-        if (due) { const k = 1 - clamp((due.at - this.t) / 0.6, 0, 1); ctx.strokeStyle = '#4ade80'; ctx.lineWidth = r * 0.1; ctx.beginPath(); ctx.ellipse(x, y, r * (1.8 - 0.8 * k), r * 0.55 * (1.8 - 0.8 * k), 0, 0, Math.PI * 2); ctx.stroke(); }
-        label(ctx, p.label, x, y, r * 0.3, 'rgba(0,0,0,.75)');
+        ctx.fillStyle = 'rgba(0,0,0,.45)'; ctx.beginPath(); ctx.ellipse(x, y + r * 0.18, r * 1.04, r * ry, 0, 0, Math.PI * 2); ctx.fill();
+        const cymbal = ['crash', 'hihat', 'openhat'].includes(p.id);
+        const pg = ctx.createRadialGradient(x - r * 0.3, y - r * 0.3, r * 0.05, x, y, r);
+        pg.addColorStop(0, '#ffffff'); pg.addColorStop(cymbal ? 0.15 : 0.3, p.color); pg.addColorStop(1, cymbal ? 'rgba(120,80,0,.85)' : 'rgba(0,0,0,.65)');
+        ctx.fillStyle = pg; ctx.beginPath(); ctx.ellipse(x, y, r * s, r * ry * s, 0, 0, Math.PI * 2); ctx.fill();
+        if (cymbal) { ctx.strokeStyle = 'rgba(0,0,0,.18)'; ctx.lineWidth = 1.5; for (let k = 0.3; k < 1; k += 0.14) { ctx.beginPath(); ctx.ellipse(x, y, r * k * s, r * ry * k * s, 0, 0, Math.PI * 2); ctx.stroke(); } }
+        else { ctx.fillStyle = 'rgba(255,255,255,.12)'; ctx.beginPath(); ctx.ellipse(x, y, r * 0.78 * s, r * ry * 0.78 * s, 0, 0, Math.PI * 2); ctx.fill(); }
+        ctx.strokeStyle = f > 0 ? `rgba(255,255,255,${0.5 + f * 0.5})` : 'rgba(0,0,0,.4)'; ctx.lineWidth = Math.max(3, r * 0.07 + f * r * 0.12);
+        ctx.beginPath(); ctx.ellipse(x, y, r * s, r * ry * s, 0, 0, Math.PI * 2); ctx.stroke();
+        if (due) { const k = 1 - clamp((due.at - this.t) / 0.6, 0, 1); ctx.strokeStyle = '#4ade80'; ctx.lineWidth = r * 0.1; ctx.beginPath(); ctx.ellipse(x, y, r * (1.7 - 0.7 * k), r * ry * (1.7 - 0.7 * k), 0, 0, Math.PI * 2); ctx.stroke(); }
+        label(ctx, p.label, x, y + r * 0.02, r * 0.26, 'rgba(0,0,0,.78)');
+      }
+      // Mãos: esqueleto discreto + 10 baquetas coloridas
+      for (const c of api.cursors) {
+        if (!c.lm) continue; const pts = c.lm.map((p) => api.toScreen(p));
+        ctx.strokeStyle = 'rgba(255,255,255,.22)'; ctx.lineWidth = Math.max(2, MIN * 0.005); ctx.lineCap = 'round';
+        ctx.beginPath(); for (const [a, b] of HAND_LINKS) { ctx.moveTo(pts[a].x, pts[a].y); ctx.lineTo(pts[b].x, pts[b].y); } ctx.stroke();
+      }
+      for (const tp of this.tips) {
+        const r = MIN * (0.022 + tp.flash * 0.02);
+        if (tp.flash > 0) { ctx.fillStyle = tp.color + '55'; ctx.beginPath(); ctx.arc(tp.x, tp.y, r * 2.2, 0, Math.PI * 2); ctx.fill(); }
+        ctx.fillStyle = tp.color; ctx.beginPath(); ctx.arc(tp.x, tp.y, r, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = tp.over ? '#fff' : 'rgba(0,0,0,.6)'; ctx.lineWidth = tp.over ? 3 : 2; ctx.stroke();
+      }
+      // Painel dos dedos: acende quando cada dedo é reconhecido batendo
+      const two = api.activePlayers() === 2;
+      for (const pl of two ? [1, 2] : [1]) {
+        const cx0 = two ? (pl === 1 ? W * 0.25 : W * 0.75) : W / 2, y0 = H * 0.9, gap = MIN * 0.075;
+        if (two) label(ctx, `P${pl}`, cx0 - gap * 3.1, y0, MIN * 0.03, PLAYER_COLORS[pl]);
+        FINGERS.forEach((fg, i) => {
+          const x = cx0 + (i - 2) * gap, v = this.panel[pl][i];
+          ctx.fillStyle = 'rgba(0,0,0,.5)'; ctx.beginPath(); ctx.arc(x, y0, MIN * 0.03, 0, Math.PI * 2); ctx.fill();
+          ctx.fillStyle = fg.color; ctx.globalAlpha = 0.25 + v * 0.75; ctx.beginPath(); ctx.arc(x, y0, MIN * (0.024 + v * 0.008), 0, Math.PI * 2); ctx.fill(); ctx.globalAlpha = 1;
+          label(ctx, fg.short, x, y0, MIN * 0.022, 'rgba(0,0,0,.8)');
+        });
       }
       if (this.fx) { ctx.globalAlpha = clamp(this.fx.life, 0, 1); label(ctx, this.fx.text, this.fx.x, this.fx.y, MIN * 0.06, '#fde047'); ctx.globalAlpha = 1; }
-      if (this.challenge && this.combo >= 3) label(ctx, `🔥 x${this.combo}`, W / 2, H * 0.9, MIN * 0.06, '#fbbf24');
-      if (!this.challenge) label(ctx, `Toque livre · desafio em ${Math.ceil(this.modeTimer)} s — bata DESCENDO a mão`, W / 2, H * 0.92, MIN * 0.035, '#fde68a');
+      if (this.challenge && this.combo >= 3) label(ctx, `combo x${this.combo}`, W / 2, H * 0.5, MIN * 0.05, '#fbbf24');
+      if (!this.challenge) label(ctx, `Mão aberta sobre as peças · batuque FIRME com os dedos, como numa mesa · desafio em ${Math.ceil(this.modeTimer)} s`, W / 2, H * 0.205, MIN * 0.03, '#fde68a');
     },
-    finish() { api.endMini({ title: 'FIM DO SOLO!', score: this.score, bestKey: 'bestBateria', stats: `${this.hits} batidas · combo máx. ${this.maxCombo}` }); },
+    finish() {
+      const names = FINGERS.map((f, i) => `${f.short} ${this.fingerHits[i]}`).join(' · ');
+      api.endMini({ title: 'FIM DO SOLO!', score: this.score, bestKey: 'bestBateria', stats: `${this.hits} batidas · combo máx. ${this.maxCombo} · por dedo: ${names}` });
+    },
   };
 
   // ===========================================================================

@@ -43,7 +43,7 @@ Depois, em Settings → Pages do repositório: Custom domain = `www.levantaebrin
 
 - **🤟 Libras (Aprender)** e **🔤 Soletrar** — alfabeto manual: 12 letras estáticas (A B C D F I L O U V W Y) com esquema da mão, dica por dedo ("quase: dobre o anelar") e palavras para soletrar contra o relógio. Fora desta versão: letras com movimento (H J K X Z) e as que dependem da orientação/polegar (E G M N P Q R S T). Os esquemas são aproximações didáticas — valide com instrutor de Libras.
 
-- **🥁 Bateria no Ar** — 7 peças; bater = entrar na peça com a mão descendo rápido. 20 s de toque livre, depois Desafio de 60 s (peças acendem no ritmo, pontos por precisão). Sons sintetizados (sem arquivos).
+- **🥁 Bateria no Ar** — tocada com os **dedos**: cada ponta de dedo (até 10, duas mãos) é uma baqueta; o toque é a flexão rápida do dedo ("batucar na mesa"), medida em proporção à palma e com limiar adaptativo ao tremor da câmera. Golpe com a mão inteira também vale. Painel por dedo mostra o que foi reconhecido. 20 s livres + Desafio de 60 s. Bateria sintetizada (bumbo, caixa, chimbal, prato, toms) com volume pela força do toque.
 - **🏃 Corredor** — 3 pistas controladas pela mão: esquerda/centro/direita = pista, mão no alto = pular, mão embaixo = abaixar. Moedas, poderes (escudo, ímã, ×2), obstáculos (barreira: pule; viga: abaixe; muro: troque de pista), 3 vidas, velocidade crescente. *Controle pelo corpo (pose) fica para uma etapa futura.*
 
 - **🍽 Pratinhos** — pratos giram em varas; faça círculos com a mão ao redor do prato (velocidade angular) para repor o giro. Medidor por prato, até 5 pratos, 3 vidas.

@@ -70,7 +70,7 @@ const state = {
   scenarioIdx: 0,
   p2SeenAt: -1e9,      // última vez que uma mão do lado do jogador 2 foi vista (modo auto)
 };
-const APP_VERSION = '4.1.0';
+const APP_VERSION = '4.2.0';
 const stats = { fps: 0, detFps: 0, inferMs: 0, frames: 0, detFrames: 0, lastTick: 0, delegate: '-', handsEver: 0, maxHands: 0, handSize: 0 };
 
 let game = null;
@@ -553,7 +553,7 @@ function render(now) {
   const t = now / 1000, sc = scenario();
   if (activeMini && ['mini', 'countdown', 'over', 'paused', 'feedback'].includes(state.phase) && !game) {
     activeMini.render(gctx, t, now);
-    fctx.clearRect(0, 0, W, H); if (settings.debug) drawDebug(); drawCursors(now); return;
+    fctx.clearRect(0, 0, W, H); if (settings.debug) drawDebug(); if (!activeMini.hideCursors || state.phase !== 'mini') drawCursors(now); return;
   }
   if (bgCacheKey !== sc.id) { bgCache = buildBg(sc); bgCacheKey = sc.id; }
 
@@ -1037,7 +1037,7 @@ function loop(now) {
 
 // ---- API usada pelos minijogos (js/minigames.js) ----
 const miniAPI = {
-  get W() { return W; }, get H() { return H; }, get MIN() { return MIN; }, get cursors() { return cursors; }, cx,
+  get W() { return W; }, get H() { return H; }, get MIN() { return MIN; }, get cursors() { return cursors; }, cx, toScreen, get actx() { return actx; },
   state, settings, sfx, tone, noise, banner, toast, show, hide, setText, showScreen, PLAYER_COLORS, activePlayers,
   emit, particles, rand, randInt, clamp, lerp, pick, fmtTime, contactRadius, ensureAudio, requestWakeLock, progress, saveProgress,
   startMini(mini) { ensureAudio(); requestWakeLock(); game = null; activeMini = mini; state.lastGame = mini.name; window.__mini = mini; mini.start(); $('hudWaterBox').classList.add('hidden'); beginCountdown(3); },
