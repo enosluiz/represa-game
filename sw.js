@@ -10,7 +10,7 @@
  * disponível" e só troca quando o jogador toca em "Atualizar" (nunca no meio
  * de uma partida).
  * ========================================================================== */
-const VERSION = 'v4.0.0';
+const VERSION = 'v4.1.0';
 const APP_CACHE = `represa-app-${VERSION}`;
 const RUNTIME_CACHE = 'represa-runtime-v1'; // WASM/modelo: mantido entre versões
 
@@ -29,6 +29,8 @@ const APP_SHELL = [
   './js/circo.js',
   './js/art.js',
   './js/icons.js',
+  './js/feedback.js',
+  './js/config.js',
   './vendor/motion/motion.js',
   './vendor/fonts/fredoka-latin-600-normal.woff2',
   './vendor/fonts/fredoka-latin-700-normal.woff2',
@@ -113,7 +115,17 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // 3) Demais arquivos do próprio site: cache-first dentro da versão instalada
+  // 3) config.js (editado pelo dono do app): rede primeiro, cache se offline
+  if (url.origin === self.location.origin && url.pathname.endsWith('/js/config.js')) {
+    event.respondWith((async () => {
+      const app = await caches.open(APP_CACHE);
+      try { const res = await fetch(req, { cache: 'no-store' }); if (res.ok) app.put(req, res.clone()); return res; }
+      catch { return (await app.match(req, { ignoreSearch: true })) || Response.error(); }
+    })());
+    return;
+  }
+
+  // 4) Demais arquivos do próprio site: cache-first dentro da versão instalada
   if (url.origin === self.location.origin) {
     event.respondWith((async () => {
       const app = await caches.open(APP_CACHE);

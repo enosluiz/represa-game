@@ -109,6 +109,7 @@
             <button class="seg-btn" data-players="1" data-hover aria-label="1 jogador"><i data-icon="user"></i><span>1</span></button>
             <button class="seg-btn" data-players="2" data-hover aria-label="2 jogadores"><i data-icon="users"></i><span>2</span></button>
           </div>
+          <button id="btnFeedback" class="icon-btn" data-hover aria-label="Enviar feedback ao editor"><i data-icon="message-square"></i></button>
           <button id="btnSettings" class="icon-btn" data-hover aria-label="Ajustes"><i data-icon="settings"></i></button>
         </div>
       </header>
@@ -215,6 +216,8 @@
         <button id="optDelegate" class="set-row"><i data-icon="cpu"></i><span class="set-label">Processamento da IA</span><span class="set-val"></span></button>
         <button id="optDebug" class="set-row"><i data-icon="activity"></i><span class="set-label">Diagnóstico</span><span class="set-val"></span></button>
         <button id="optFull" class="set-row"><i data-icon="maximize"></i><span class="set-label">Tela cheia</span><span class="set-val"></span></button>
+        <button id="optCamTest" class="set-row set-row-hi" data-hover><i data-icon="scan-eye"></i><span class="set-label">Testar câmera</span><span class="set-val">Diagnóstico ao vivo</span></button>
+        <button id="optFeedback" class="set-row set-row-hi" data-hover><i data-icon="message-square"></i><span class="set-label">Falar com o editor</span><span class="set-val">Feedback</span></button>
         <button id="btnInstall" class="set-row hidden"><i data-icon="download"></i><span class="set-label">Instalar app</span><span class="set-val"></span></button>
       </div>
       <button id="btnSetBack" class="btn btn-ghost" data-hover><i data-icon="arrow-left"></i> Voltar</button>
@@ -241,6 +244,46 @@
     </div>
   </div>
 
+  <!-- ===================== FEEDBACK ===================== -->
+  <div id="feedback" class="screen hidden">
+    <div class="panel panel-fb">
+      <h2 class="title-sm">Fale com o editor</h2>
+      <p class="small opacity-80">Dá para responder só com a mão: escolha a nota e os assuntos e segure sobre “Enviar”.</p>
+      <div id="fbStars" class="fb-stars" role="group" aria-label="Nota de 1 a 5"></div>
+      <div id="fbCats" class="fb-cats" role="group" aria-label="Assuntos"></div>
+      <div class="fb-fields">
+        <label class="fb-field"><span>Mensagem (opcional)</span><textarea id="fbMsg" rows="2" maxlength="1500" placeholder="Conte o que aconteceu ou o que gostaria de ver"></textarea></label>
+        <label class="fb-field"><span>Seu nome ou contato (opcional)</span><input id="fbContact" type="text" maxlength="120" autocomplete="off" placeholder="Para o editor poder responder" /></label>
+      </div>
+      <label class="fb-check"><input id="fbDiag" type="checkbox" checked /> <span>Incluir diagnóstico técnico (sem imagens da câmera)</span></label>
+      <details class="fb-details"><summary>Ver exatamente o que será enviado</summary><pre id="fbDiagText"></pre></details>
+      <p id="fbResult" class="fb-result" role="status" aria-live="polite"></p>
+      <div class="flex flex-wrap gap-4 justify-center">
+        <button id="fbSend" class="btn btn-play" data-hover disabled>Enviar</button>
+        <button id="fbBack" class="btn btn-ghost" data-hover><i data-icon="arrow-left"></i> Voltar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== TESTAR CÂMERA ===================== -->
+  <div id="camtest" class="screen screen-clear hidden">
+    <div class="panel panel-ct">
+      <h2 class="title-sm">Testar câmera</h2>
+      <p id="ctVerdict" class="ct-verdict warn" role="status" aria-live="polite">Mostre a palma da mão aberta, de frente para a câmera.</p>
+      <div id="ctStats" class="ct-stats"></div>
+      <ul class="ct-tips small">
+        <li>Distância ideal: 0,5 a 1,5 m da câmera.</li>
+        <li>Luz vindo de frente; nada de janela atrás de você.</li>
+        <li>Palma aberta virada para a câmera; fundo simples ajuda.</li>
+      </ul>
+      <div class="flex flex-wrap gap-3 justify-center">
+        <button id="ctSwitch" class="btn btn-ghost btn-sm" data-hover>Trocar</button>
+        <button id="ctSend" class="btn btn-ghost btn-sm" data-hover><i data-icon="send"></i> Enviar diagnóstico</button>
+        <button id="ctBack" class="btn btn-ghost btn-sm" data-hover><i data-icon="arrow-left"></i> Voltar</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ===================== PAUSA ===================== -->
   <div id="pause" class="screen hidden">
     <div class="panel">
@@ -248,6 +291,7 @@
       <div class="flex flex-wrap gap-4 justify-center">
         <button id="btnResume" class="btn btn-play" data-hover><i data-icon="play"></i> Continuar</button>
         <button id="btnQuit" class="btn btn-ghost" data-hover><i data-icon="home"></i> Menu</button>
+        <button id="btnFbPause" class="btn btn-ghost" data-hover><i data-icon="message-square"></i> Feedback</button>
       </div>
     </div>
   </div>
@@ -277,6 +321,7 @@
       <div class="flex flex-wrap gap-4 justify-center">
         <button id="btnAgain" class="btn btn-play" data-hover>↻ Tentar de novo</button>
         <button id="btnMenu" class="btn btn-ghost" data-hover><i data-icon="home"></i> Menu</button>
+        <button id="btnFbOver" class="btn btn-ghost" data-hover><i data-icon="message-square"></i> Feedback</button>
       </div>
     </div>
   </div>

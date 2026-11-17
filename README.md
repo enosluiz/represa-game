@@ -12,6 +12,12 @@ Jogos que você joga com as mãos, sem tocar na tela, usando a câmera do celula
 - **Interação por mão**: segurar 1,2 s sobre botões; 2,5 s sobre a pausa durante o jogo; botão sob a mão ao abrir uma tela só aceita depois que a mão sai.
 - **Layout**: a grade de jogos sempre cabe na tela (6×2 deitado, 3×4 em pé), porque não há rolagem com a mão.
 
+## Feedback e diagnóstico
+- **Fale com o editor** (ícone de balão no menu, Ajustes, pausa e fim de jogo): nota 1–5 e assuntos escolhíveis só com a mão; mensagem e contato opcionais; diagnóstico técnico opcional (nunca imagens da câmera). Envio por [FormSubmit](https://formsubmit.co) para o email definido em `js/config.js`; sem internet ou sem destino configurado, o feedback fica numa fila no aparelho e é reenviado depois.
+- **Testar câmera** (Ajustes): vídeo em tela cheia com o esqueleto da mão, métricas ao vivo (IA, detecções/s, mãos, tamanho da mão, luz) e um veredito do motivo provável de falha, com botão para trocar GPU/CPU.
+
+**Configurar o email (dono do app):** edite `js/config.js` no GitHub, coloque o email em `FEEDBACK_KEY`, publique, envie um feedback de teste e clique em *Activate Form* no email do FormSubmit. Depois troque o email pelo código aleatório que vier na ativação, para o endereço não ficar público.
+
 ## Domínio próprio (GitHub Pages)
 O arquivo `CNAME` contém `www.levantaebrinca.com.br`. No provedor do domínio, crie:
 

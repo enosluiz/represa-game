@@ -70,7 +70,8 @@ const state = {
   scenarioIdx: 0,
   p2SeenAt: -1e9,      // última vez que uma mão do lado do jogador 2 foi vista (modo auto)
 };
-const stats = { fps: 0, detFps: 0, inferMs: 0, frames: 0, detFrames: 0, lastTick: 0, delegate: '-', handsEver: 0 };
+const APP_VERSION = '4.1.0';
+const stats = { fps: 0, detFps: 0, inferMs: 0, frames: 0, detFrames: 0, lastTick: 0, delegate: '-', handsEver: 0, maxHands: 0, handSize: 0 };
 
 let game = null;
 
@@ -155,11 +156,16 @@ async function initTracker() {
   catch (e) { console.warn('GPU indisponível, usando CPU', e); if (settings.delegate === 'GPU') throw e; tracker = await HandLandmarker.createFromOptions(fileset, opts('CPU')); stats.delegate = 'CPU'; }
 }
 /** Troca GPU↔CPU em tempo real (sem recarregar). */
-async function switchDelegate() {
-  const order = ['auto', 'GPU', 'CPU']; settings.delegate = order[(order.indexOf(settings.delegate) + 1) % 3]; saveSettings(); updateChips();
+async function reloadTracker() {
   if (!tracker) return;
   const old = tracker; tracker = null; try { old.close?.(); } catch { /* */ }
+  stats.handsEver = 0; stats.maxHands = 0;
   try { await initTracker(); toast(`IA rodando em ${stats.delegate}`); } catch (e) { setStatus(explainError(e), true); }
+  updateChips();
+}
+async function switchDelegate() {
+  const order = ['auto', 'GPU', 'CPU']; settings.delegate = order[(order.indexOf(settings.delegate) + 1) % 3]; saveSettings(); updateChips();
+  await reloadTracker();
 }
 function detectHands(now) {
   if (!tracker || video.readyState < 2 || video.currentTime === lastVideoTime) return null;
@@ -199,6 +205,8 @@ const MATCH_R = (nPts) => (nPts <= 1 && cursors.length <= 1 ? MIN * 0.7 : MIN * 
 
 function updateCursors(res, now) {
   state.lastLandmarks = res.landmarks || [];
+  stats.maxHands = Math.max(stats.maxHands, state.lastLandmarks.length);
+  if (state.lastLandmarks.length) { const xs = state.lastLandmarks[0].map((p) => p.x); stats.handSize = Math.max(...xs) - Math.min(...xs); }
   if (state.lastLandmarks.length) stats.handsEver++;
   const pts = state.lastLandmarks.map((lm) => { const p = toScreen(contactPoint(lm)); return { x: clamp(p.x, 0, W), y: clamp(p.y, 0, H), raw: toScreen(lm[0]), lm }; });
   // 1) Pareamento global por distância (sem troca cruzada entre mãos próximas)
@@ -530,9 +538,20 @@ function buildBg(sc) {
 }
 
 let activeMini = null;
+/** Tela "Testar câmera": vídeo nítido em tela cheia + esqueleto sempre visível. */
+function renderCamTest(now) {
+  gctx.fillStyle = '#000'; gctx.fillRect(0, 0, W, H);
+  if (video.readyState >= 2) {
+    const g = CONFIG.REACH_GAIN; gctx.save();
+    if (settings.mirror) { gctx.translate(W, 0); gctx.scale(-1, 1); }
+    gctx.drawImage(video, W * (0.5 - 0.5 * g), H * (0.5 - 0.5 * g), W * g, H * g); gctx.restore();
+  }
+  fctx.clearRect(0, 0, W, H); drawDebug(false); drawCursors(now);
+}
 function render(now) {
+  if (state.phase === 'camtest') return renderCamTest(now);
   const t = now / 1000, sc = scenario();
-  if (activeMini && ['mini', 'countdown', 'over', 'paused'].includes(state.phase) && !game) {
+  if (activeMini && ['mini', 'countdown', 'over', 'paused', 'feedback'].includes(state.phase) && !game) {
     activeMini.render(gctx, t, now);
     fctx.clearRect(0, 0, W, H); if (settings.debug) drawDebug(); drawCursors(now); return;
   }
@@ -683,13 +702,14 @@ function drawCursors(now) {
   fctx.globalAlpha = 1;
 }
 
-function drawDebug() {
+function drawDebug(bar = true) {
   fctx.lineWidth = 3;
   for (const lm of state.lastLandmarks) {
     const pts = lm.map(toScreen); fctx.strokeStyle = 'rgba(34,197,94,.9)';
     for (const [a, b] of HAND_CONNECTIONS) { fctx.beginPath(); fctx.moveTo(pts[a].x, pts[a].y); fctx.lineTo(pts[b].x, pts[b].y); fctx.stroke(); }
     fctx.fillStyle = '#f43f5e'; for (const p of pts) { fctx.beginPath(); fctx.arc(p.x, p.y, 4, 0, Math.PI * 2); fctx.fill(); }
   }
+  if (!bar) return;
   const txt = `FPS ${stats.fps} | det ${stats.detFps}/s | IA ${stats.inferMs.toFixed(1)}ms (${stats.delegate}) | cam ${video.videoWidth}x${video.videoHeight} | mãos ${state.lastLandmarks.length} (total ${stats.handsEver}) | jogadores ${activePlayers()} | part ${particles.length}`;
   fctx.font = `700 ${Math.round(clamp(MIN * 0.025, 11, 22))}px ui-monospace, monospace`; fctx.textAlign = 'left'; fctx.textBaseline = 'bottom';
   fctx.fillStyle = 'rgba(0,0,0,.65)'; fctx.fillRect(8, H - 8 - MIN * 0.045, fctx.measureText(txt).width + 16, MIN * 0.045);
@@ -761,7 +781,7 @@ function buildSelect() {
 const PAUSE_HOLD_MS = 2500; // pausar com a mão exige mais tempo (evita pausa acidental no jogo)
 function updateHover(dtMs) {
   const inGame = ['playing', 'mini'].includes(state.phase);
-  if (!inGame && !['menu', 'settings', 'select', 'paused', 'result', 'over', 'intro'].includes(state.phase)) return;
+  if (!inGame && !['menu', 'settings', 'feedback', 'camtest', 'select', 'paused', 'result', 'over', 'intro'].includes(state.phase)) return;
   const targets = inGame ? [$('btnPause')] : document.querySelectorAll('.screen:not(.hidden) [data-hover]');
   const need = inGame ? PAUSE_HOLD_MS : CONFIG.HOVER_CLICK_MS;
   for (const el of targets) {
@@ -782,7 +802,8 @@ function updateHover(dtMs) {
 // =============================================================================
 // 10. FLUXO DE TELAS
 // =============================================================================
-const SCREENS = ['menu', 'settings', 'select', 'intro', 'pause', 'result', 'gameover'];
+const SCREENS = ['menu', 'settings', 'feedback', 'camtest', 'select', 'intro', 'pause', 'result', 'gameover'];
+const currentScreen = () => SCREENS.find((s) => !$(s).classList.contains('hidden')) || null;
 const hoverProgress = new WeakMap();
 const hoverBlocked = new WeakSet();
 // ---- Movimento de interface (Motion, molas). Desligado se o sistema pede menos movimento.
@@ -817,12 +838,14 @@ function goMenu() { state.phase = 'menu'; game = null; activeMini = null; $('hud
 function goSelect() { state.phase = 'select'; buildSelect(); showScreen('select'); }
 
 function startEndless() {
+  state.lastGame = 'Represa Infinita';
   ensureAudio(); requestWakeLock(); state.mode = 'endless';
   resetGame(ENDLESS, 0); beginCountdown(3);
 }
 
 /** Mostra a tela de introdução do cenário e aguarda "Começar". */
 function startScenario(carryScore) {
+  state.lastGame = `Represa · cenário ${state.scenarioIdx + 1}`;
   ensureAudio(); requestWakeLock();
   const sc = SCENARIOS[state.scenarioIdx];
   resetGame(sc, carryScore);
@@ -914,7 +937,7 @@ async function toggleFullscreen() {
 const probe = document.createElement('canvas'); probe.width = 32; probe.height = 24; const pctx = probe.getContext('2d', { willReadFrequently: true });
 function checkLight(now) {
   if (now - state.lastLightCheck < 1500 || video.readyState < 2) return; state.lastLightCheck = now;
-  try { pctx.drawImage(video, 0, 0, 32, 24); const d = pctx.getImageData(0, 0, 32, 24).data; let sum = 0; for (let i = 0; i < d.length; i += 4) sum += 0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2]; state.lowLight = sum / (d.length / 4) < 55; } catch { /* */ }
+  try { pctx.drawImage(video, 0, 0, 32, 24); const d = pctx.getImageData(0, 0, 32, 24).data; let sum = 0; for (let i = 0; i < d.length; i += 4) sum += 0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2]; state.luma = sum / (d.length / 4); state.lowLight = state.luma < 55; } catch { /* */ }
 }
 
 const isStandalone = () => matchMedia('(display-mode: standalone)').matches || matchMedia('(display-mode: fullscreen)').matches || navigator.standalone === true;
@@ -954,18 +977,21 @@ async function refreshOfflineStatus() {
 // =============================================================================
 // 13. EVENTOS
 // =============================================================================
-$('btnCam').addEventListener('click', async () => {
+/** Abre câmera + IA. Retorna true se ficou pronto. Usado pelo botão do menu e pelo "Testar câmera". */
+async function activateCamera() {
   ensureAudio();
-  if (!window.isSecureContext) { setStatus('A câmera só funciona em HTTPS (ou localhost).', true); return; }
+  if (!window.isSecureContext) { setStatus('A câmera só funciona em HTTPS (ou localhost).', true); toast('A câmera só funciona em HTTPS.'); return false; }
   $('btnCam').disabled = true;
   try {
-    setStatus('Abrindo a câmera…'); await startCamera();
+    setStatus('Abrindo a câmera…'); if (!stream) await startCamera();
     if (!tracker) { setStatus('Carregando o modelo de IA (só demora na 1ª vez)…'); await initTracker(); }
-    state.phase = 'menu'; hide('btnCam'); show('menuPlay');
+    hide('btnCam'); show('menuPlay');
     setStatus(`Pronto · IA em ${stats.delegate}. Mostre a mão e segure sobre um jogo.`);
-    setTimeout(refreshOfflineStatus, 1500);
-  } catch (err) { console.error(err); setStatus(explainError(err), true); $('btnCam').disabled = false; }
-});
+    setTimeout(refreshOfflineStatus, 1500); updateChips();
+    return true;
+  } catch (err) { console.error(err); setStatus(explainError(err), true); toast(explainError(err), 4000); $('btnCam').disabled = false; return false; }
+}
+$('btnCam').addEventListener('click', async () => { if (await activateCamera() && ['boot', 'menu'].includes(state.phase)) state.phase = 'menu'; });
 $('btnCampaign').addEventListener('click', goSelect);
 $('btnEndless').addEventListener('click', startEndless);
 $('btnSelBack').addEventListener('click', goMenu);
@@ -1003,6 +1029,7 @@ function loop(now) {
   if (state.phase === 'countdown') updateCountdown(dt);
   else if (state.phase === 'playing') updateGame(dt, now);
   else if (state.phase === 'mini' && activeMini) activeMini.update(dt, now);
+  else if (state.phase === 'camtest' && fbmod) fbmod.updateCamTest(now, dt);
   if (state.phase !== 'paused') updateParticles(dt);
   render(now); updateHover(dt * 1000); updateHUD(now);
   stats.frames++; if (now - stats.lastTick >= 1000) { stats.fps = stats.frames; stats.detFps = stats.detFrames; stats.frames = 0; stats.detFrames = 0; stats.lastTick = now; }
@@ -1013,7 +1040,7 @@ const miniAPI = {
   get W() { return W; }, get H() { return H; }, get MIN() { return MIN; }, get cursors() { return cursors; }, cx,
   state, settings, sfx, tone, noise, banner, toast, show, hide, setText, showScreen, PLAYER_COLORS, activePlayers,
   emit, particles, rand, randInt, clamp, lerp, pick, fmtTime, contactRadius, ensureAudio, requestWakeLock, progress, saveProgress,
-  startMini(mini) { ensureAudio(); requestWakeLock(); game = null; activeMini = mini; window.__mini = mini; mini.start(); $('hudWaterBox').classList.add('hidden'); beginCountdown(3); },
+  startMini(mini) { ensureAudio(); requestWakeLock(); game = null; activeMini = mini; state.lastGame = mini.name; window.__mini = mini; mini.start(); $('hudWaterBox').classList.add('hidden'); beginCountdown(3); },
   endMini({ title, score, stats, bestKey }) {
     state.phase = 'over'; sfx.over();
     const isRecord = score > (progress[bestKey] || 0); if (isRecord) { progress[bestKey] = score; saveProgress(); }
@@ -1027,6 +1054,18 @@ import('./libras.js').then((m) => m.install(miniAPI)).catch((e) => console.warn(
 import('./arcade.js').then((m) => m.install(miniAPI)).catch((e) => console.warn('Arcade não carregou', e));
 import('./circo.js').then((m) => m.install(miniAPI)).catch((e) => console.warn('Circo não carregou', e));
 
-window.__represa = { get game() { return game; }, get cursors() { return cursors; }, get state() { return state; }, CONFIG, SCENARIOS, startScenario, startEndless, settings };
+// ---- Feedback + Testar câmera ----
+let fbmod = null;
+import('./feedback.js').then((m) => {
+  fbmod = m.install({ $, state, settings, stats, toast, icon, showScreen, currentScreen, goMenu, sfx, APP_VERSION, isStandalone,
+    hasTracker: () => !!tracker, activateCamera, reloadTracker, saveSettings });
+}).catch((e) => console.warn('Feedback não carregou', e));
+$('btnFeedback').addEventListener('click', () => fbmod?.openFeedback());
+$('optFeedback').addEventListener('click', () => fbmod?.openFeedback());
+$('optCamTest').addEventListener('click', () => fbmod?.openCamTest());
+$('btnFbPause').addEventListener('click', () => fbmod?.openFeedback());
+$('btnFbOver').addEventListener('click', () => fbmod?.openFeedback());
+
+window.__represa = { get fb() { return fbmod; }, get game() { return game; }, get cursors() { return cursors; }, get state() { return state; }, CONFIG, SCENARIOS, startScenario, startEndless, settings };
 hydrateIcons(); resize(); updateChips(); setupPWA(); requestAnimationFrame(loop);
 window.addEventListener('load', () => animateIn('menu'));
