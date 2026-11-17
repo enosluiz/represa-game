@@ -54,6 +54,7 @@ const settings = loadJSON('represa.settings', {
   facing: 'user', mirror: true, contact: 'palm', camOpacity: 0.3, tvMode: false, debug: false,
   players: 'auto',   // 'auto' | '1' | '2'
   delegate: 'auto',  // 'auto' | 'GPU' | 'CPU' — alguns Android falham em silêncio na GPU
+  zoom: 'auto',      // 'auto' | 1 | 1.6 | 2.3 — zoom de detecção para jogar longe da câmera
 });
 const saveSettings = () => saveJSON('represa.settings', settings);
 
@@ -70,7 +71,7 @@ const state = {
   scenarioIdx: 0,
   p2SeenAt: -1e9,      // última vez que uma mão do lado do jogador 2 foi vista (modo auto)
 };
-const APP_VERSION = '4.3.0';
+const APP_VERSION = '4.4.0';
 const stats = { fps: 0, detFps: 0, inferMs: 0, frames: 0, detFrames: 0, lastTick: 0, delegate: '-', handsEver: 0, maxHands: 0, handSize: 0 };
 
 let game = null;
@@ -113,7 +114,7 @@ async function startCamera() {
   stopCamera();
   if (!navigator.mediaDevices?.getUserMedia) throw new Error('Este navegador não dá acesso à câmera.');
   stream = await navigator.mediaDevices.getUserMedia({ audio: false,
-    video: { facingMode: { ideal: settings.facing }, width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 30, max: 30 } } });
+    video: { facingMode: { ideal: settings.facing }, width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30, max: 30 } } });
   video.srcObject = stream; await video.play();
   const s = stream.getVideoTracks()[0]?.getSettings?.() || {};
   if (s.facingMode === 'user' || s.facingMode === 'environment') settings.facing = s.facingMode;
@@ -167,12 +168,63 @@ async function switchDelegate() {
   const order = ['auto', 'GPU', 'CPU']; settings.delegate = order[(order.indexOf(settings.delegate) + 1) % 3]; saveSettings(); updateChips();
   await reloadTracker();
 }
+// -----------------------------------------------------------------------------
+// ZOOM DE DETECÇÃO — a IA reduz a imagem a 192×192 para achar a palma; de longe a mão
+// some. Recortamos o centro da imagem (o recorte vira o campo de jogo inteiro), o que
+// aumenta a mão 1,6× ou 2,3×. No automático: sem mão por 3 s → mais zoom; mão enorme → menos.
+// -----------------------------------------------------------------------------
+const ZOOMS = [1, 1.6, 2.3];
+const zoomState = { z: 1, lastChange: 0, lastHands: 0, size: null };
+const detCanvas = document.createElement('canvas'), detCtx = detCanvas.getContext('2d');
+/** Retângulo de recorte em pixels do vídeo (centro, um pouco acima: as mãos sobem). */
+function cropRect() {
+  const vw = video.videoWidth || 640, vh = video.videoHeight || 480, z = zoomState.z;
+  const w = vw / z, h = vh / z;
+  return { x: (vw - w) / 2, y: Math.max(0, (vh - h) / 2 - (vh - h) * 0.12), w, h };
+}
+function setZoom(z, why) {
+  if (z === zoomState.z) return;
+  zoomState.z = z; zoomState.lastChange = performance.now(); bgCacheKey = '';
+  for (const c of cursors) c.lastSeen = -1e9; // cursores do enquadramento anterior não valem mais
+  if (why) toast(`Zoom da câmera: ${z.toFixed(1).replace('.', ',')}× — ${why}`, 2200);
+  updateChips();
+}
+function autoZoom(now) {
+  if (settings.zoom !== 'auto') { const z = +settings.zoom || 1; if (z !== zoomState.z) setZoom(z); return; }
+  if (!tracker || !stream) return;
+  const hands = state.lastLandmarks.length, idx = ZOOMS.indexOf(zoomState.z);
+  if (hands) { zoomState.lastHands = now; zoomState.n = (zoomState.n || 0) + 1; zoomState.size = zoomState.size == null ? stats.handSize : zoomState.size + (stats.handSize - zoomState.size) * 0.15; }
+  if (now - zoomState.lastChange < 4000) return;              // estabilidade: no máx. 1 troca a cada 4 s
+  if (hands && zoomState.size != null && zoomState.n >= 8) {
+    // A mão visível guia o zoom, saltando direto ao nível que deixa a mão com ~15% da largura
+    const want = zoomState.z * (0.15 / Math.max(0.01, zoomState.size));
+    const target = zoomState.size < 0.09 ? (ZOOMS.find((z) => z >= want * 0.9) || ZOOMS[ZOOMS.length - 1])
+                 : zoomState.size > 0.38 ? ([...ZOOMS].reverse().find((z) => z <= want * 1.1) || 1) : zoomState.z;
+    if (target !== zoomState.z) { zoomState.size = null; zoomState.n = 0; setZoom(target, target > zoomState.z ? 'você está longe' : 'você está perto'); }
+  } else if (!hands && now - zoomState.lastHands > 8000) {
+    zoomState.size = null; zoomState.n = 0; setZoom(ZOOMS[(idx + 1) % ZOOMS.length], 'procurando suas mãos'); // ninguém à vista: procura
+  }
+}
+/** Desenha o vídeo (já recortado pelo zoom) ocupando o mesmo espaço que o mapeamento das mãos. */
+function drawVideo(ctx, alpha) {
+  if (video.readyState < 2) return;
+  const g = CONFIG.REACH_GAIN, r = cropRect(); ctx.save(); ctx.globalAlpha = alpha;
+  if (settings.mirror) { ctx.translate(W, 0); ctx.scale(-1, 1); }
+  ctx.drawImage(video, r.x, r.y, r.w, r.h, W * (0.5 - 0.5 * g), H * (0.5 - 0.5 * g), W * g, H * g); ctx.restore();
+}
 function detectHands(now) {
   if (!tracker || video.readyState < 2 || video.currentTime === lastVideoTime) return null;
   lastVideoTime = video.currentTime;
   const t0 = performance.now();
-  try { const res = tracker.detectForVideo(video, now); stats.inferMs = performance.now() - t0; stats.detFrames++; return res; }
-  catch (e) { console.warn('detectForVideo falhou', e); return null; }
+  try {
+    let input = video;
+    if (zoomState.z > 1) {
+      const r = cropRect(), w = Math.round(Math.min(r.w, 960)), h = Math.round(w * r.h / r.w);
+      if (detCanvas.width !== w || detCanvas.height !== h) { detCanvas.width = w; detCanvas.height = h; }
+      detCtx.drawImage(video, r.x, r.y, r.w, r.h, 0, 0, w, h); input = detCanvas;
+    }
+    const res = tracker.detectForVideo(input, now); stats.inferMs = performance.now() - t0; stats.detFrames++; return res;
+  } catch (e) { console.warn('detectForVideo falhou', e); return null; }
 }
 
 // =============================================================================
@@ -541,11 +593,7 @@ let activeMini = null;
 /** Tela "Testar câmera": vídeo nítido em tela cheia + esqueleto sempre visível. */
 function renderCamTest(now) {
   gctx.fillStyle = '#000'; gctx.fillRect(0, 0, W, H);
-  if (video.readyState >= 2) {
-    const g = CONFIG.REACH_GAIN; gctx.save();
-    if (settings.mirror) { gctx.translate(W, 0); gctx.scale(-1, 1); }
-    gctx.drawImage(video, W * (0.5 - 0.5 * g), H * (0.5 - 0.5 * g), W * g, H * g); gctx.restore();
-  }
+  drawVideo(gctx, 1);
   fctx.clearRect(0, 0, W, H); drawDebug(false); drawCursors(now);
 }
 function render(now) {
@@ -561,11 +609,7 @@ function render(now) {
   if (state.shake > 0) gctx.translate(rand(-1, 1) * state.shake * MIN * 0.012, rand(-1, 1) * state.shake * MIN * 0.012);
   gctx.drawImage(bgCache, 0, 0, W, H);
 
-  if (settings.camOpacity > 0 && video.readyState >= 2) {
-    const g = CONFIG.REACH_GAIN; gctx.save(); gctx.globalAlpha = settings.camOpacity * (rule('dark') ? 0.4 : 1);
-    if (settings.mirror) { gctx.translate(W, 0); gctx.scale(-1, 1); }
-    gctx.drawImage(video, W * (0.5 - 0.5 * g), H * (0.5 - 0.5 * g), W * g, H * g); gctx.restore();
-  }
+  if (settings.camOpacity > 0) drawVideo(gctx, settings.camOpacity * (rule('dark') ? 0.4 : 1));
 
   if (game) {
     for (const d of game.decals) { gctx.fillStyle = `rgba(160,166,176,${0.75 * d.life})`; gctx.beginPath(); gctx.arc(d.nx * W, d.ny * H, d.rn * MIN * 1.15, 0, Math.PI * 2); gctx.fill(); }
@@ -754,6 +798,7 @@ function updateChips() {
   setOpt('optCamView', `${Math.round(settings.camOpacity * 100)}%`, settings.camOpacity > 0);
   setOpt('optTv', settings.tvMode ? 'Ligado' : 'Desligado', settings.tvMode);
   setOpt('optDebug', settings.debug ? 'Ligado' : 'Desligado', settings.debug);
+  setOpt('optZoom', `${settings.zoom === 'auto' ? 'Automático' : { 1: 'Perto · 1×', 1.6: 'Média · 1,6×', 2.3: 'Longe · 2,3×' }[settings.zoom]}${settings.zoom === 'auto' ? ' · ' + zoomState.z.toFixed(1).replace('.', ',') + '×' : ''}`, settings.zoom !== 1);
   setOpt('optDelegate', `${settings.delegate === 'auto' ? 'Automático' : settings.delegate}${tracker ? ' · ' + stats.delegate : ''}`);
   setOpt('optFull', document.fullscreenElement ? 'Ligada' : 'Desligada', !!document.fullscreenElement);
   for (const b of document.querySelectorAll('[data-players]')) { const on = b.dataset.players === settings.players; b.classList.toggle('chip-on', on); b.setAttribute('aria-pressed', on); }
@@ -813,13 +858,13 @@ const SPRING = { type: 'spring', stiffness: 320, damping: 28 };
 function animateIn(id) {
   const mo = M(); if (!mo || !id) return;
   const panel = $(id).querySelector('.panel'); if (!panel) return;
-  mo.animate(panel, { opacity: [0, 1], transform: ['translateY(28px) scale(.97)', 'translateY(0) scale(1)'] }, SPRING);
+  mo.animate(panel, { opacity: [0, 1], y: [28, 0], scale: [0.97, 1] }, SPRING);
   const items = panel.querySelectorAll('.game-card, .sc-card, .set-row, .btn, .seg');
-  if (items.length) mo.animate(items, { opacity: [0, 1], transform: ['translateY(16px)', 'translateY(0)'] }, { ...SPRING, delay: mo.stagger(0.035, { startDelay: 0.06 }) });
+  if (items.length) mo.animate(items, { opacity: [0, 1], y: [16, 0] }, { ...SPRING, delay: mo.stagger(0.035, { startDelay: 0.06 }) });
 }
 function popEl(el, scale = 1.18) {
   const mo = M(); if (!mo || !el) return;
-  mo.animate(el, { transform: [`scale(${scale})`, 'scale(1)'] }, { type: 'spring', stiffness: 500, damping: 15 });
+  mo.animate(el, { scale: [scale, 1] }, { type: 'spring', stiffness: 500, damping: 15 });
 }
 function showScreen(id) {
   const prev = SCREENS.find((s) => !$(s).classList.contains('hidden'));
@@ -1018,6 +1063,7 @@ $('optCamView').addEventListener('click', () => { const steps = [0, 0.2, 0.3, 0.
 $('optTv').addEventListener('click', () => { settings.tvMode = !settings.tvMode; saveSettings(); updateChips(); });
 $('optDebug').addEventListener('click', () => { settings.debug = !settings.debug; saveSettings(); updateChips(); });
 $('optDelegate').addEventListener('click', switchDelegate);
+$('optZoom').addEventListener('click', () => { const order = ['auto', 1, 1.6, 2.3]; settings.zoom = order[(order.findIndex((v) => String(v) === String(settings.zoom)) + 1) % order.length]; saveSettings(); zoomState.lastChange = 0; if (settings.zoom !== 'auto') setZoom(+settings.zoom); updateChips(); });
 document.addEventListener('visibilitychange', () => { if (document.hidden) pauseGame(); else if (state.phase !== 'boot') requestWakeLock(); });
 window.addEventListener('resize', resize); window.addEventListener('orientationchange', () => setTimeout(resize, 200));
 
@@ -1028,7 +1074,7 @@ let lastFrame = performance.now();
 function loop(now) {
   requestAnimationFrame(loop);
   const dt = Math.min(0.05, (now - lastFrame) / 1000); lastFrame = now;
-  const res = detectHands(now); if (res) updateCursors(res, now); pruneCursors(now); checkLight(now);
+  const res = detectHands(now); if (res) updateCursors(res, now); pruneCursors(now); checkLight(now); autoZoom(now);
   if (state.phase === 'countdown') updateCountdown(dt);
   else if (state.phase === 'playing') updateGame(dt, now);
   else if (state.phase === 'mini' && activeMini) activeMini.update(dt, now);
@@ -1062,7 +1108,7 @@ import('./circo.js').then((m) => m.install(miniAPI)).catch((e) => console.warn('
 let fbmod = null;
 import('./feedback.js').then((m) => {
   fbmod = m.install({ $, state, settings, stats, toast, icon, showScreen, currentScreen, goMenu, sfx, APP_VERSION, isStandalone,
-    hasTracker: () => !!tracker, activateCamera, reloadTracker, saveSettings });
+    hasTracker: () => !!tracker, activateCamera, reloadTracker, saveSettings, zoom: () => zoomState.z });
 }).catch((e) => console.warn('Feedback não carregou', e));
 $('btnFeedback').addEventListener('click', () => fbmod?.openFeedback());
 
@@ -1090,6 +1136,6 @@ $('optCamTest').addEventListener('click', () => fbmod?.openCamTest());
 $('btnFbPause').addEventListener('click', () => fbmod?.openFeedback());
 $('btnFbOver').addEventListener('click', () => fbmod?.openFeedback());
 
-window.__represa = { get engage() { return engage; }, get fb() { return fbmod; }, get game() { return game; }, get cursors() { return cursors; }, get state() { return state; }, CONFIG, SCENARIOS, startScenario, startEndless, settings };
+window.__represa = { get zoom() { return zoomState.z; }, get engage() { return engage; }, get fb() { return fbmod; }, get game() { return game; }, get cursors() { return cursors; }, get state() { return state; }, CONFIG, SCENARIOS, startScenario, startEndless, settings };
 hydrateIcons(); resize(); updateChips(); setupPWA(); requestAnimationFrame(loop);
 window.addEventListener('load', () => animateIn('menu'));

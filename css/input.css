@@ -209,7 +209,7 @@ button:focus-visible { outline: 3px solid #fde047; outline-offset: 3px; }
 .ct-verdict.ok { color: #bbf7d0; background: rgba(22,163,74,.25); border-color: #22c55e; }
 .ct-verdict.warn { color: #fef08a; background: rgba(202,138,4,.22); border-color: #eab308; }
 .ct-verdict.bad { color: #fecaca; background: rgba(220,38,38,.22); border-color: #ef4444; }
-.ct-stats { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: .8vmin; }
+.ct-stats { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: .8vmin; }
 .ct-stats div { display: flex; flex-direction: column; gap: .2em; padding: .5em .4em; border-radius: .8rem; background: rgba(255,255,255,.06); text-align: center; }
 .ct-stats span { font-size: clamp(9px, 1.5vmin, 14px); color: var(--muted); }
 .ct-stats b { font-family: 'Fredoka', sans-serif; font-size: clamp(13px, 2.4vmin, 26px); }

@@ -64,7 +64,7 @@ export function install(api) {
       'Tela': `${screen.width}×${screen.height} @${(devicePixelRatio || 1).toFixed(2)} · janela ${innerWidth}×${innerHeight}`,
       'Instalado como app': api.isStandalone() ? 'sim' : 'não',
       'Online': navigator.onLine ? 'sim' : 'não',
-      'Câmera': `${settings.facing === 'user' ? 'frontal' : 'traseira'} · ${v?.videoWidth || 0}×${v?.videoHeight || 0} · espelhar ${settings.mirror ? 'sim' : 'não'}`,
+      'Câmera': `${settings.facing === 'user' ? 'frontal' : 'traseira'} · ${v?.videoWidth || 0}×${v?.videoHeight || 0} · espelhar ${settings.mirror ? 'sim' : 'não'} · zoom ${api.zoom ? api.zoom() : 1}× (${settings.zoom})`,
       'IA': `${stats.delegate} (escolha: ${settings.delegate}) · ${stats.inferMs.toFixed(1)} ms/quadro · ${stats.detFps} detecções/s`,
       'Desempenho': `${stats.fps} fps de tela`,
       'Mãos': `vistas em ${stats.handsEver} quadros · máx. simultâneas ${stats.maxHands || 0} · tamanho da última ${stats.handSize ? Math.round(stats.handSize * 100) + '% da largura' : '—'}`,
@@ -171,6 +171,7 @@ export function install(api) {
       ['Mãos', state.lastLandmarks.length],
       ['Tamanho da mão', stats.handSize ? Math.round(stats.handSize * 100) + '%' : '—'],
       ['Luz', state.luma != null ? Math.round(state.luma) : '—'],
+      ['Zoom', `${(api.zoom ? api.zoom() : 1).toFixed(1).replace('.', ',')}×`],
     ].map(([k, val]) => `<div><span>${k}</span><b>${val}</b></div>`).join('');
     const label = `Trocar para ${stats.delegate === 'GPU' ? 'CPU' : 'GPU'}`;
     if (!$('ctSwitch').textContent.includes(label)) $('ctSwitch').innerHTML = `${icon('cpu')} ${label}`;
