@@ -71,7 +71,7 @@ const state = {
   scenarioIdx: 0,
   p2SeenAt: -1e9,      // última vez que uma mão do lado do jogador 2 foi vista (modo auto)
 };
-const APP_VERSION = '4.4.0';
+const APP_VERSION = '4.4.1';
 const stats = { fps: 0, detFps: 0, inferMs: 0, frames: 0, detFrames: 0, lastTick: 0, delegate: '-', handsEver: 0, maxHands: 0, handSize: 0 };
 
 let game = null;
@@ -1028,7 +1028,13 @@ async function refreshOfflineStatus() {
 /** Abre câmera + IA. Retorna true se ficou pronto. Usado pelo botão do menu e pelo "Testar câmera". */
 async function activateCamera() {
   ensureAudio();
-  if (!window.isSecureContext) { setStatus('A câmera só funciona em HTTPS (ou localhost).', true); toast('A câmera só funciona em HTTPS.'); return false; }
+  if (!window.isSecureContext) {
+    // Aberto como http:// — o navegador bloqueia a câmera. Oferece a versão segura do mesmo endereço.
+    const secure = location.href.replace(/^http:/, 'https:');
+    $('status').innerHTML = `O site abriu sem cadeado (http) e o navegador bloqueia a câmera. <a class="sec-link" href="${secure}">Abrir versão segura (https)</a>`;
+    $('status').className = 'status-pill status-err';
+    return false;
+  }
   $('btnCam').disabled = true;
   try {
     setStatus('Abrindo a câmera…'); if (!stream) await startCamera();
@@ -1138,4 +1144,5 @@ $('btnFbOver').addEventListener('click', () => fbmod?.openFeedback());
 
 window.__represa = { get zoom() { return zoomState.z; }, get engage() { return engage; }, get fb() { return fbmod; }, get game() { return game; }, get cursors() { return cursors; }, get state() { return state; }, CONFIG, SCENARIOS, startScenario, startEndless, settings };
 hydrateIcons(); resize(); updateChips(); setupPWA(); requestAnimationFrame(loop);
+if (!window.isSecureContext && !/^(localhost|127\.)/.test(location.hostname)) activateCamera();
 window.addEventListener('load', () => animateIn('menu'));
