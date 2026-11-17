@@ -3,7 +3,20 @@
 Jogos que você joga com as mãos, sem tocar na tela, usando a câmera do celular
 (MediaPipe Tasks Vision `HandLandmarker`, rodando 100% no aparelho). Inclui o jogo da Represa (10 cenários) e minijogos.
 
-**Jogar:** https://enosluiz.github.io/represa-game/
+**Jogar:** https://www.levantaebrinca.com.br (ou https://enosluiz.github.io/represa-game/)
+
+## Domínio próprio (GitHub Pages)
+O arquivo `CNAME` contém `www.levantaebrinca.com.br`. No provedor do domínio, crie:
+
+| Tipo | Nome | Valor |
+|---|---|---|
+| A | `@` | `185.199.108.153` |
+| A | `@` | `185.199.109.153` |
+| A | `@` | `185.199.110.153` |
+| A | `@` | `185.199.111.153` |
+| CNAME | `www` | `enosluiz.github.io.` |
+
+Depois, em Settings → Pages do repositório: Custom domain = `www.levantaebrinca.com.br` → Save → aguardar a checagem de DNS → marcar **Enforce HTTPS**.
 
 ## Modos
 - **Campanha** — 10 cenários de 45 s, cada um com mecânica própria, estrelas (1–3 pelo nível do reservatório) e desbloqueio progressivo.
@@ -19,6 +32,10 @@ Jogos que você joga com as mãos, sem tocar na tela, usando a câmera do celula
 
 - **🥁 Bateria no Ar** — 7 peças; bater = entrar na peça com a mão descendo rápido. 20 s de toque livre, depois Desafio de 60 s (peças acendem no ritmo, pontos por precisão). Sons sintetizados (sem arquivos).
 - **🏃 Corredor** — 3 pistas controladas pela mão: esquerda/centro/direita = pista, mão no alto = pular, mão embaixo = abaixar. Moedas, poderes (escudo, ímã, ×2), obstáculos (barreira: pule; viga: abaixe; muro: troque de pista), 3 vidas, velocidade crescente. *Controle pelo corpo (pose) fica para uma etapa futura.*
+
+- **🍽 Pratinhos** — pratos giram em varas; faça círculos com a mão ao redor do prato (velocidade angular) para repor o giro. Medidor por prato, até 5 pratos, 3 vidas.
+- **🤹 Malabares** — bolas com gravidade; a mão rebate por baixo (impulso calculado para chegar ao topo; direção pela posição relativa e arrasto da mão). Até 5 bolas, combo, 3 vidas.
+- **🧤 Goleiro** — chutes com curva e fintas, alvo amarelo mostra o ponto de chegada; defenda com a mão (ou duas) antes da bola chegar. 3 gols sofridos encerram.
 
 Gestos: contagem de dedos estendidos a partir dos 21 pontos (punho = 0–1, tesoura = indicador+médio, aberta = 4–5). Funciona com a mão de frente para a câmera.
 

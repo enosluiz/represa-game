@@ -61,3 +61,19 @@
 .sc-locked .sc-stars { color: rgba(255,255,255,.6); font-size: clamp(9px, 1.6vmin, 16px); }
 
 .btn-mini { font-size: clamp(16px, 3.4vmin, 36px); padding: .45em 1.1em; background: rgba(255,255,255,.1); }
+
+/* ---- Marca: visível em todas as telas, abaixo do cursor (fx z=50) e acima dos menus (z=20) ---- */
+#brand { position: fixed; right: 1.2vmin; bottom: 1vmin; z-index: 45; display: flex; align-items: center; gap: .6em;
+  padding: .35em .9em .35em .5em; border-radius: 999px; background: rgba(2,6,23,.55); border: 1px solid rgba(255,255,255,.14);
+  backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); color: rgba(255,255,255,.85);
+  font-size: clamp(9px, 1.6vmin, 15px); letter-spacing: .02em; pointer-events: none; white-space: nowrap; }
+#brand-logo { height: clamp(22px, 4.2vmin, 44px); width: auto; filter: drop-shadow(0 2px 4px rgba(0,0,0,.6)); }
+#brand b { color: #fde68a; }
+
+/* ---- Botões "juicy": crescem e brilham conforme a mão paira; pulso ao acionar ---- */
+[data-hover] { transition: transform .12s ease, box-shadow .15s ease, filter .15s ease; transform: scale(calc(1 + var(--p, 0) * 0.07)); 
+  box-shadow: 0 0 calc(var(--p, 0) * 40px) rgba(125,211,252, calc(var(--p, 0) * .8)); }
+[data-hover]::after { transition: width .05s linear; }
+.bump { animation: bump .45s cubic-bezier(.2,1.6,.4,1); }
+@keyframes bump { 0% { transform: scale(1.12); filter: brightness(1.6); } 60% { transform: scale(.96); } 100% { transform: scale(1); filter: brightness(1); } }
+.btn:active { transform: scale(.96); }

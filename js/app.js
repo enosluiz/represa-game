@@ -740,7 +740,7 @@ function updateHover(dtMs) {
       const r = el.getBoundingClientRect();
       const over = cursors.some((c) => cx(c) >= r.left && cx(c) <= r.right && c.y >= r.top && c.y <= r.bottom);
       p = over ? p + dtMs : Math.max(0, p - dtMs * 2);
-      if (p >= CONFIG.HOVER_CLICK_MS) { p = 0; sfx.click(); el.click(); }
+      if (p >= CONFIG.HOVER_CLICK_MS) { p = 0; sfx.click(); el.classList.remove('bump'); void el.offsetWidth; el.classList.add('bump'); el.click(); }
     }
     hoverProgress.set(el, p); el.style.setProperty('--p', (p / CONFIG.HOVER_CLICK_MS).toFixed(3));
   }
@@ -960,6 +960,7 @@ const miniAPI = {
 import('./minigames.js').then((m) => m.install(miniAPI)).catch((e) => console.warn('minijogos não carregaram', e));
 import('./libras.js').then((m) => m.install(miniAPI)).catch((e) => console.warn('Libras não carregou', e));
 import('./arcade.js').then((m) => m.install(miniAPI)).catch((e) => console.warn('Arcade não carregou', e));
+import('./circo.js').then((m) => m.install(miniAPI)).catch((e) => console.warn('Circo não carregou', e));
 
 window.__represa = { get game() { return game; }, get cursors() { return cursors; }, get state() { return state; }, CONFIG, SCENARIOS, startScenario, startEndless, settings };
 resize(); updateChips(); setupPWA(); requestAnimationFrame(loop);
