@@ -114,6 +114,12 @@
         </div>
       </header>
 
+      <div class="hub-bar">
+        <div id="hubProfile" class="hub-profile" aria-live="polite"></div>
+        <button id="hubDaily" class="hub-daily" data-hover></button>
+        <button id="hubDownload" class="hub-dl" data-hover><i data-icon="download"></i> Baixar o jogo</button>
+      </div>
+
       <div class="cam-gate">
         <p id="status" class="status-pill">Toque em “Ativar câmera” para começar.</p>
         <button id="btnCam" class="btn btn-primary"><i data-icon="camera"></i> Ativar câmera</button>
@@ -298,14 +304,20 @@
 
   <!-- ===================== RESULTADO (cenário vencido) ===================== -->
   <div id="result" class="screen hidden">
-    <div class="panel">
-      <div class="hud-label">CENÁRIO CONCLUÍDO</div>
-      <div id="resName" class="title-sm"></div>
-      <div id="resStars" class="stars"></div>
-      <div id="resStats" class="lead opacity-85"></div>
-      <div id="resPlayers" class="lead text-amber-200"></div>
-      <div class="flex flex-wrap gap-4 justify-center">
-        <button id="btnNext" class="btn btn-play" data-hover>▶ Próximo cenário</button>
+    <div class="panel panel-res">
+      <div class="res-grid">
+        <div class="res-main">
+          <div class="hud-label">CENÁRIO CONCLUÍDO</div>
+          <div id="resName" class="title-sm"></div>
+          <div id="resStars" class="stars"></div>
+          <div id="resStats" class="lead opacity-85"></div>
+          <div id="resPlayers" class="lead text-amber-200"></div>
+          <div id="resRewards" class="rewards"></div>
+        </div>
+        <aside id="resShare" class="share-box"></aside>
+      </div>
+      <div class="flex flex-wrap gap-3 justify-center">
+        <button id="btnNext" class="btn btn-play" data-hover>Próximo cenário</button>
         <button id="btnResMenu" class="btn btn-ghost" data-hover><i data-icon="home"></i> Menu</button>
       </div>
     </div>
@@ -313,16 +325,32 @@
 
   <!-- ===================== GAME OVER ===================== -->
   <div id="gameover" class="screen hidden">
-    <div class="panel">
-      <div id="goTitle" class="title text-sky-300">A REPRESA SECOU!</div>
-      <div class="hud-value" id="goScore">0</div>
-      <div class="lead opacity-85" id="goStats"></div>
-      <div class="lead text-amber-300" id="goBest"></div>
-      <div class="flex flex-wrap gap-4 justify-center">
-        <button id="btnAgain" class="btn btn-play" data-hover>↻ Tentar de novo</button>
+    <div class="panel panel-res">
+      <div class="res-grid">
+        <div class="res-main">
+          <div id="goTitle" class="title-sm text-sky-300">A REPRESA SECOU!</div>
+          <div class="hud-value" id="goScore">0</div>
+          <div class="lead opacity-85" id="goStats"></div>
+          <div class="lead text-amber-300" id="goBest"></div>
+          <div id="goRewards" class="rewards"></div>
+        </div>
+        <aside id="goShare" class="share-box"></aside>
+      </div>
+      <div class="flex flex-wrap gap-3 justify-center">
+        <button id="btnAgain" class="btn btn-play" data-hover>Tentar de novo</button>
         <button id="btnMenu" class="btn btn-ghost" data-hover><i data-icon="home"></i> Menu</button>
         <button id="btnFbOver" class="btn btn-ghost" data-hover><i data-icon="message-square"></i> Feedback</button>
       </div>
+    </div>
+  </div>
+
+  <!-- ===================== COMO INSTALAR ===================== -->
+  <div id="installHelp" class="screen hidden">
+    <div class="panel panel-fb">
+      <h2 class="title-sm">Baixar o jogo</h2>
+      <p class="lead">Instale o Levanta e Brinca para abrir pelo ícone, em tela cheia, e jogar até sem internet.</p>
+      <ol id="installSteps" class="install-steps"></ol>
+      <button id="installBack" class="btn btn-ghost" data-hover><i data-icon="arrow-left"></i> Voltar</button>
     </div>
   </div>
 

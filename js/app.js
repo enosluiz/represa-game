@@ -70,7 +70,7 @@ const state = {
   scenarioIdx: 0,
   p2SeenAt: -1e9,      // última vez que uma mão do lado do jogador 2 foi vista (modo auto)
 };
-const APP_VERSION = '4.2.0';
+const APP_VERSION = '4.3.0';
 const stats = { fps: 0, detFps: 0, inferMs: 0, frames: 0, detFrames: 0, lastTick: 0, delegate: '-', handsEver: 0, maxHands: 0, handSize: 0 };
 
 let game = null;
@@ -781,7 +781,7 @@ function buildSelect() {
 const PAUSE_HOLD_MS = 2500; // pausar com a mão exige mais tempo (evita pausa acidental no jogo)
 function updateHover(dtMs) {
   const inGame = ['playing', 'mini'].includes(state.phase);
-  if (!inGame && !['menu', 'settings', 'feedback', 'camtest', 'select', 'paused', 'result', 'over', 'intro'].includes(state.phase)) return;
+  if (!inGame && !['menu', 'settings', 'feedback', 'camtest', 'install', 'select', 'paused', 'result', 'over', 'intro'].includes(state.phase)) return;
   const targets = inGame ? [$('btnPause')] : document.querySelectorAll('.screen:not(.hidden) [data-hover]');
   const need = inGame ? PAUSE_HOLD_MS : CONFIG.HOVER_CLICK_MS;
   for (const el of targets) {
@@ -802,7 +802,7 @@ function updateHover(dtMs) {
 // =============================================================================
 // 10. FLUXO DE TELAS
 // =============================================================================
-const SCREENS = ['menu', 'settings', 'feedback', 'camtest', 'select', 'intro', 'pause', 'result', 'gameover'];
+const SCREENS = ['menu', 'settings', 'feedback', 'camtest', 'installHelp', 'select', 'intro', 'pause', 'result', 'gameover'];
 const currentScreen = () => SCREENS.find((s) => !$(s).classList.contains('hidden')) || null;
 const hoverProgress = new WeakMap();
 const hoverBlocked = new WeakSet();
@@ -834,7 +834,7 @@ function showScreen(id) {
   }
 }
 
-function goMenu() { state.phase = 'menu'; game = null; activeMini = null; $('hudWaterBox').classList.remove('hidden'); particles.length = 0; rain.length = 0; bgCacheKey = ''; updateChips(); showScreen('menu'); }
+function goMenu() { state.phase = 'menu'; game = null; activeMini = null; $('hudWaterBox').classList.remove('hidden'); particles.length = 0; rain.length = 0; bgCacheKey = ''; updateChips(); engage?.renderMenu(); showScreen('menu'); }
 function goSelect() { state.phase = 'select'; buildSelect(); showScreen('select'); }
 
 function startEndless() {
@@ -872,7 +872,8 @@ function finishScenario(won) {
   if (!won) { gameOver(); return; }
   const stars = water >= 70 ? 3 : water >= 40 ? 2 : 1;
   progress.stars[sc.id] = Math.max(progress.stars[sc.id] || 0, stars);
-  if (game.score > progress.bestCampaign) progress.bestCampaign = game.score;
+  const prevBest = progress.bestCampaign || 0, isRecord = game.score > prevBest;
+  if (isRecord) progress.bestCampaign = game.score;
   saveProgress(); sfx.level(); state.phase = 'result';
   $('resName').textContent = sc.name; $('resStars').textContent = '★'.repeat(stars) + '☆'.repeat(3 - stars);
   $('resStats').textContent = `${Math.ceil(water)}% do reservatório · ${game.patched} reparos · ${game.score.toLocaleString('pt-BR')} pts acumulados`;
@@ -882,6 +883,7 @@ function finishScenario(won) {
   $('btnNext').innerHTML = last ? `${icon('trophy')} Campanha concluída!` : `${icon('play')} Próximo cenário`;
   $('btnNext').disabled = last;
   showScreen('result');
+  engage?.onGameEnd({ gameId: 'bestCampaign', score: game.score, prevBest, isRecord, title: `Cenário ${state.scenarioIdx + 1} vencido`, twoPlayers: two, playSec: game.time, target: 'res' });
 }
 function nextScenario() { state.scenarioIdx++; startScenario(game.score); }
 
@@ -889,13 +891,14 @@ function gameOver() {
   state.phase = 'over'; sfx.over();
   const endless = game.sc === ENDLESS;
   const key = endless ? 'bestEndless' : 'bestCampaign';
-  const isRecord = game.score > progress[key]; if (isRecord) { progress[key] = game.score; saveProgress(); }
+  const prevBest = progress[key] || 0, isRecord = game.score > prevBest; if (isRecord) { progress[key] = game.score; saveProgress(); }
   $('goTitle').textContent = endless ? 'A REPRESA SECOU!' : `ROMPEU EM: ${game.sc.name.toUpperCase()}`;
   $('goScore').textContent = `${game.score.toLocaleString('pt-BR')} pts`;
   $('goStats').textContent = `${game.patched} reparos · ${endless ? 'nível ' + game.level : 'cenário ' + (state.scenarioIdx + 1)} · ${fmtTime(game.time)}`;
-  $('goBest').textContent = isRecord ? '🏆 NOVO RECORDE!' : `Recorde: ${progress[key].toLocaleString('pt-BR')}`;
+  $('goBest').innerHTML = isRecord && prevBest > 0 ? `${icon('trophy')} NOVO RECORDE!` : `Recorde: ${progress[key].toLocaleString('pt-BR')}`;
   $('btnAgain').innerHTML = `${icon('refresh-cw')} ${endless ? 'Jogar de novo' : 'Tentar de novo'}`;
   showScreen('gameover');
+  engage?.onGameEnd({ gameId: key, score: game.score, prevBest, isRecord, title: $('goTitle').textContent, twoPlayers: activePlayers() === 2, playSec: game.time, target: 'go' });
 }
 
 // =============================================================================
@@ -1043,10 +1046,11 @@ const miniAPI = {
   startMini(mini) { ensureAudio(); requestWakeLock(); game = null; activeMini = mini; state.lastGame = mini.name; window.__mini = mini; mini.start(); $('hudWaterBox').classList.add('hidden'); beginCountdown(3); },
   endMini({ title, score, stats, bestKey }) {
     state.phase = 'over'; sfx.over();
-    const isRecord = score > (progress[bestKey] || 0); if (isRecord) { progress[bestKey] = score; saveProgress(); }
+    const prevBest = progress[bestKey] || 0, isRecord = score > prevBest; if (isRecord) { progress[bestKey] = score; saveProgress(); }
     $('goTitle').textContent = title; $('goScore').textContent = `${score.toLocaleString('pt-BR')} pts`; $('goStats').textContent = stats;
-    $('goBest').textContent = isRecord ? '🏆 NOVO RECORDE!' : `Recorde: ${(progress[bestKey] || 0).toLocaleString('pt-BR')}`;
+    $('goBest').innerHTML = isRecord && prevBest > 0 ? `${icon('trophy')} NOVO RECORDE!` : `Recorde: ${(progress[bestKey] || 0).toLocaleString('pt-BR')}`;
     $('btnAgain').innerHTML = `${icon('refresh-cw')} Jogar de novo`; updateChips(); showScreen('gameover');
+    engage?.onGameEnd({ gameId: bestKey, score, prevBest, isRecord, title, twoPlayers: activePlayers() === 2, playSec: activeMini?.t || 0, target: 'go' });
   },
 };
 import('./minigames.js').then((m) => m.install(miniAPI)).catch((e) => console.warn('minijogos não carregaram', e));
@@ -1061,11 +1065,31 @@ import('./feedback.js').then((m) => {
     hasTracker: () => !!tracker, activateCamera, reloadTracker, saveSettings });
 }).catch((e) => console.warn('Feedback não carregou', e));
 $('btnFeedback').addEventListener('click', () => fbmod?.openFeedback());
+
+// ---- Baixar o jogo (instalar PWA): prompt nativo quando existe; senão, passo a passo ----
+let installReturn = null;
+async function installApp() {
+  if (isStandalone()) { toast('O jogo já está instalado neste aparelho.'); return; }
+  if (deferredInstall) { deferredInstall.prompt(); const ch = await deferredInstall.userChoice.catch(() => null); deferredInstall = null; hide('btnInstall'); engage?.renderMenu(); if (ch && ch.outcome === 'accepted') toast('Instalando… o ícone aparece na tela inicial.'); return; }
+  const ua = navigator.userAgent, steps = isIOS
+    ? ['Abra este site no <b>Safari</b> (no iPhone, só ele instala apps da web).', 'Toque em <b>Compartilhar</b> (o quadrado com a seta para cima).', 'Escolha <b>Adicionar à Tela de Início</b> e confirme.']
+    : /Android/i.test(ua)
+      ? ['Abra este site no <b>Chrome</b>.', 'Toque no menu <b>⋮</b> no canto superior direito.', 'Escolha <b>Instalar app</b> ou <b>Adicionar à tela inicial</b>.']
+      : ['No <b>Chrome</b> ou <b>Edge</b>, clique no ícone de instalar na barra de endereço (um monitor com seta).', 'Ou abra o menu <b>⋮</b> e escolha <b>Instalar Levanta e Brinca</b>.', 'No celular, abra este mesmo endereço para instalar lá também.'];
+  $('installSteps').innerHTML = steps.map((t) => `<li>${t}</li>`).join('');
+  installReturn = { phase: state.phase, screen: currentScreen() };
+  state.phase = 'install'; showScreen('installHelp');
+}
+$('installBack').addEventListener('click', () => { const r = installReturn; if (r && r.screen && r.phase !== 'install') { state.phase = r.phase; showScreen(r.screen); } else goMenu(); });
+
+// ---- Engajamento saudável (nível, conquistas, desafio do dia, compartilhar) ----
+let engage = null;
+import('./engage.js').then((m) => { engage = m.install({ $, icon, progress, sfx, toast, banner, isStandalone, installApp }); }).catch((e) => console.warn('Engajamento não carregou', e));
 $('optFeedback').addEventListener('click', () => fbmod?.openFeedback());
 $('optCamTest').addEventListener('click', () => fbmod?.openCamTest());
 $('btnFbPause').addEventListener('click', () => fbmod?.openFeedback());
 $('btnFbOver').addEventListener('click', () => fbmod?.openFeedback());
 
-window.__represa = { get fb() { return fbmod; }, get game() { return game; }, get cursors() { return cursors; }, get state() { return state; }, CONFIG, SCENARIOS, startScenario, startEndless, settings };
+window.__represa = { get engage() { return engage; }, get fb() { return fbmod; }, get game() { return game; }, get cursors() { return cursors; }, get state() { return state; }, CONFIG, SCENARIOS, startScenario, startEndless, settings };
 hydrateIcons(); resize(); updateChips(); setupPWA(); requestAnimationFrame(loop);
 window.addEventListener('load', () => animateIn('menu'));

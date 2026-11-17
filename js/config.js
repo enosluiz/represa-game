@@ -10,3 +10,8 @@
 // Enquanto estiver vazio, o app guarda os feedbacks no aparelho e não envia nada.
 // =============================================================================
 export const FEEDBACK_KEY = '';
+
+// SITE_URL: endereço usado nos links de compartilhamento. Vazio = usa o endereço atual do site
+// (ex.: enosluiz.github.io/represa-game). Quando o domínio próprio estiver no ar, coloque
+// 'https://www.levantaebrinca.com.br'.
+export const SITE_URL = '';
