@@ -15,7 +15,9 @@
 <link rel="manifest" href="manifest.webmanifest" />
 <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png" />
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+<link rel="preload" href="vendor/fonts/fredoka-latin-700-normal.woff2" as="font" type="font/woff2" crossorigin />
 <link rel="stylesheet" href="css/app.css" />
+<script src="vendor/motion/motion.js" defer></script>
 
 <!--
 ================================================================================
@@ -78,7 +80,7 @@
       </div>
       <div class="hud-box"><div id="hudLevelLabel" class="hud-label">CENÁRIO</div><div id="hudLevel" class="hud-value">1</div></div>
       <div class="hud-box"><div class="hud-label">TEMPO</div><div id="hudTime" class="hud-value">0:00</div></div>
-      <button id="btnPause" class="hud-box hud-value px-[2vmin]" aria-label="Pausar">II</button>
+      <button id="btnPause" class="hud-box pause-btn" data-hover aria-label="Pausar"><i data-icon="pause"></i></button>
     </div>
     <div class="flex justify-center mt-[1.5vmin]"><div id="hudCombo" class="hud-box warn text-amber-300 hidden">COMBO x2</div></div>
   </div>
@@ -90,58 +92,132 @@
   </div>
   <div class="fixed inset-0 z-40 flex items-center justify-center pointer-events-none"><div id="center"></div></div>
 
-  <!-- ===================== MENU ===================== -->
+  <!-- ===================== MENU (hub de jogos) ===================== -->
   <div id="menu" class="screen">
+    <div class="panel panel-hub">
+      <header class="hub-head">
+        <div class="hub-brand">
+          <span class="hub-mark"><i data-icon="hand"></i></span>
+          <div class="text-left">
+            <h1 class="hub-title">Levanta e Brinca</h1>
+            <p class="hub-sub">Jogos que você joga com as mãos, sem tocar na tela</p>
+          </div>
+        </div>
+        <div class="hub-actions">
+          <div class="seg" role="group" aria-label="Jogadores">
+            <button class="seg-btn" data-players="auto" data-hover aria-label="Detectar jogadores automaticamente"><i data-icon="bot"></i><span>Auto</span></button>
+            <button class="seg-btn" data-players="1" data-hover aria-label="1 jogador"><i data-icon="user"></i><span>1</span></button>
+            <button class="seg-btn" data-players="2" data-hover aria-label="2 jogadores"><i data-icon="users"></i><span>2</span></button>
+          </div>
+          <button id="btnSettings" class="icon-btn" data-hover aria-label="Ajustes"><i data-icon="settings"></i></button>
+        </div>
+      </header>
+
+      <div class="cam-gate">
+        <p id="status" class="status-pill">Toque em “Ativar câmera” para começar.</p>
+        <button id="btnCam" class="btn btn-primary"><i data-icon="camera"></i> Ativar câmera</button>
+      </div>
+
+      <div id="menuPlay" class="hidden game-grid">
+          <button id="btnCampaign" class="game-card" data-hover style="--g1:#0ea5e9;--g2:#1e3a8a">
+            <span class="gc-icon"><i data-icon="droplets"></i></span>
+            <span class="gc-name">Represa</span>
+            <span class="gc-tag">10 cenários de campanha</span>
+            <span class="gc-best" data-best="bestCampaign"></span>
+          </button>
+          <button id="btnEndless" class="game-card" data-hover style="--g1:#6366f1;--g2:#312e81">
+            <span class="gc-icon"><i data-icon="infinity"></i></span>
+            <span class="gc-name">Represa Infinita</span>
+            <span class="gc-tag">Sobreviva o máximo</span>
+            <span class="gc-best" data-best="bestEndless"></span>
+          </button>
+          <button id="btnCorredor" class="game-card" data-hover style="--g1:#22c55e;--g2:#14532d">
+            <span class="gc-icon"><i data-icon="footprints"></i></span>
+            <span class="gc-name">Corredor</span>
+            <span class="gc-tag">Pule, abaixe e desvie</span>
+            <span class="gc-best" data-best="bestCorredor"></span>
+          </button>
+          <button id="btnBateria" class="game-card" data-hover style="--g1:#f43f5e;--g2:#7f1d1d">
+            <span class="gc-icon"><i data-icon="drum"></i></span>
+            <span class="gc-name">Bateria no Ar</span>
+            <span class="gc-tag">Toque no ritmo</span>
+            <span class="gc-best" data-best="bestBateria"></span>
+          </button>
+          <button id="btnGoleiro" class="game-card" data-hover style="--g1:#10b981;--g2:#064e3b">
+            <span class="gc-icon"><i data-icon="shield"></i></span>
+            <span class="gc-name">Goleiro</span>
+            <span class="gc-tag">Defenda os chutes</span>
+            <span class="gc-best" data-best="bestGoleiro"></span>
+          </button>
+          <button id="btnMalabares" class="game-card" data-hover style="--g1:#a855f7;--g2:#4c1d95">
+            <span class="gc-icon"><i data-icon="orbit"></i></span>
+            <span class="gc-name">Malabares</span>
+            <span class="gc-tag">Bolas sempre no ar</span>
+            <span class="gc-best" data-best="bestMalabares"></span>
+          </button>
+          <button id="btnPratinhos" class="game-card" data-hover style="--g1:#f97316;--g2:#7c2d12">
+            <span class="gc-icon"><i data-icon="disc-3"></i></span>
+            <span class="gc-name">Pratinhos</span>
+            <span class="gc-tag">Gire sem deixar cair</span>
+            <span class="gc-best" data-best="bestPratinhos"></span>
+          </button>
+          <button id="btnInsetos" class="game-card" data-hover style="--g1:#84cc16;--g2:#365314">
+            <span class="gc-icon"><i data-icon="bug"></i></span>
+            <span class="gc-name">Esmaga Insetos</span>
+            <span class="gc-tag">Cuidado com as abelhas</span>
+            <span class="gc-best" data-best="bestInsetos"></span>
+          </button>
+          <button id="btnRitmo" class="game-card" data-hover style="--g1:#ec4899;--g2:#831843">
+            <span class="gc-icon"><i data-icon="music"></i></span>
+            <span class="gc-name">Ritmo</span>
+            <span class="gc-tag">Mão aberta ou fechada</span>
+            <span class="gc-best" data-best="bestRitmo"></span>
+          </button>
+          <button id="btnJokenpo" class="game-card" data-hover style="--g1:#eab308;--g2:#713f12">
+            <span class="gc-icon"><i data-icon="scissors"></i></span>
+            <span class="gc-name">Jokenpô</span>
+            <span class="gc-tag">Pedra, papel e tesoura</span>
+            <span class="gc-best" data-best="bestJokenpo"></span>
+          </button>
+          <button id="btnLibras" class="game-card" data-hover style="--g1:#14b8a6;--g2:#134e4a">
+            <span class="gc-icon"><i data-icon="hand"></i></span>
+            <span class="gc-name">Libras</span>
+            <span class="gc-tag">Aprenda o alfabeto</span>
+            <span class="gc-best" data-best="bestLibras"></span>
+          </button>
+          <button id="btnSoletrar" class="game-card" data-hover style="--g1:#06b6d4;--g2:#164e63">
+            <span class="gc-icon"><i data-icon="type"></i></span>
+            <span class="gc-name">Soletrar</span>
+            <span class="gc-tag">Palavras em Libras</span>
+            <span class="gc-best" data-best="bestSoletrar"></span>
+          </button>
+      </div>
+
+      <div class="hub-foot">
+        <p id="iosHint" class="hidden small text-amber-200">Para instalar no iPhone: Compartilhar → “Adicionar à Tela de Início”.</p>
+        <div id="updateBar" class="hidden update-bar"><i data-icon="sparkles"></i><span class="small">Nova versão disponível</span><button id="btnUpdate" class="chip !bg-sky-600">Atualizar</button></div>
+        <p id="netStatus" class="small opacity-70"></p>
+        <p class="small opacity-70">Segure a mão sobre um cartão por ~1 s para escolher. Em 2 jogadores: esquerda = P1, direita = P2. <span class="hidden" id="bestMenu"></span></p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== AJUSTES ===================== -->
+  <div id="settings" class="screen hidden">
     <div class="panel">
-      <div class="title">🙌 LEVANTA E BRINCA</div>
-      <p class="lead opacity-90">Jogos que você joga com as mãos, sem tocar na tela. 1 ou 2 jogadores.</p>
-      <p id="status" class="lead text-sky-300">Toque em “Ativar câmera” para começar.</p>
-      <button id="btnCam" class="btn btn-primary">📷 Ativar câmera</button>
-
-      <div id="menuPlay" class="hidden flex flex-col items-center gap-[2vmin]">
-        <div class="flex flex-wrap gap-3 justify-center items-center">
-          <span class="hud-label">💧 REPRESA</span>
-          <button id="btnCampaign" class="btn btn-play" data-hover>🗺 Campanha</button>
-          <button id="btnEndless" class="btn btn-ghost" data-hover>♾ Infinito</button>
-        </div>
-        <div class="flex flex-wrap gap-3 justify-center items-center">
-          <span class="hud-label">OUTROS JOGOS</span>
-          <button id="btnInsetos" class="btn btn-mini" data-hover>🪲 Insetos</button>
-          <button id="btnRitmo" class="btn btn-mini" data-hover>🎵 Ritmo</button>
-          <button id="btnJokenpo" class="btn btn-mini" data-hover>✊✋✌ Jokenpô</button>
-          <button id="btnLibras" class="btn btn-mini" data-hover>🤟 Libras</button>
-          <button id="btnSoletrar" class="btn btn-mini" data-hover>🔤 Soletrar</button>
-          <button id="btnBateria" class="btn btn-mini" data-hover>🥁 Bateria</button>
-          <button id="btnCorredor" class="btn btn-mini" data-hover>🏃 Corredor</button>
-          <button id="btnPratinhos" class="btn btn-mini" data-hover>🍽 Pratinhos</button>
-          <button id="btnMalabares" class="btn btn-mini" data-hover>🤹 Malabares</button>
-          <button id="btnGoleiro" class="btn btn-mini" data-hover>🧤 Goleiro</button>
-        </div>
-        <div class="flex flex-wrap gap-2 justify-center items-center">
-          <span class="hud-label">JOGADORES</span>
-          <button class="chip" data-players="auto" data-hover>🤖 Automático</button>
-          <button class="chip" data-players="1" data-hover>👤 1</button>
-          <button class="chip" data-players="2" data-hover>👥 2</button>
-        </div>
+      <h2 class="title-sm">Ajustes</h2>
+      <div class="set-grid">
+        <button id="optFacing" class="set-row"><i data-icon="camera"></i><span class="set-label">Câmera</span><span class="set-val"></span></button>
+        <button id="optMirror" class="set-row"><i data-icon="flip-horizontal-2"></i><span class="set-label">Espelhar</span><span class="set-val"></span></button>
+        <button id="optContact" class="set-row"><i data-icon="hand"></i><span class="set-label">Ponto de contato</span><span class="set-val"></span></button>
+        <button id="optCamView" class="set-row"><i data-icon="eye"></i><span class="set-label">Câmera ao fundo</span><span class="set-val"></span></button>
+        <button id="optTv" class="set-row"><i data-icon="tv"></i><span class="set-label">Modo TV</span><span class="set-val"></span></button>
+        <button id="optDelegate" class="set-row"><i data-icon="cpu"></i><span class="set-label">Processamento da IA</span><span class="set-val"></span></button>
+        <button id="optDebug" class="set-row"><i data-icon="activity"></i><span class="set-label">Diagnóstico</span><span class="set-val"></span></button>
+        <button id="optFull" class="set-row"><i data-icon="maximize"></i><span class="set-label">Tela cheia</span><span class="set-val"></span></button>
+        <button id="btnInstall" class="set-row hidden"><i data-icon="download"></i><span class="set-label">Instalar app</span><span class="set-val"></span></button>
       </div>
-
-      <div class="flex flex-wrap gap-2 justify-center">
-        <button id="optFacing" class="chip"></button>
-        <button id="optMirror" class="chip"></button>
-        <button id="optContact" class="chip"></button>
-        <button id="optCamView" class="chip"></button>
-        <button id="optTv" class="chip"></button>
-        <button id="optDebug" class="chip"></button>
-        <button id="optDelegate" class="chip"></button>
-        <button id="optFull" class="chip">⛶ Tela cheia</button>
-        <button id="btnInstall" class="chip hidden !bg-emerald-600/80">⬇ Instalar app</button>
-      </div>
-      <p id="iosHint" class="hidden small text-amber-200">📲 Para instalar no iPhone: Compartilhar <b>⎋</b> → “Adicionar à Tela de Início”.</p>
-      <div id="updateBar" class="hidden flex items-center gap-3 rounded-2xl bg-sky-900/70 border border-sky-400/40 px-4 py-2">
-        <span class="small">✨ Nova versão disponível</span><button id="btnUpdate" class="chip !bg-sky-600">Atualizar</button>
-      </div>
-      <p id="netStatus" class="small opacity-70"></p>
-      <p class="small opacity-70 max-w-3xl">Sem tocar na tela: segure a mão sobre um botão por ~1 s. Em 2 jogadores, quem entra pela esquerda é P1 e pela direita, P2. Recordes: <b id="bestMenu"></b></p>
+      <button id="btnSetBack" class="btn btn-ghost" data-hover><i data-icon="arrow-left"></i> Voltar</button>
     </div>
   </div>
 
@@ -150,7 +226,7 @@
     <div class="panel">
       <div class="title-sm">ESCOLHA O CENÁRIO</div>
       <div id="scGrid" class="sc-grid"></div>
-      <button id="btnSelBack" class="btn btn-ghost" data-hover>← Menu</button>
+      <button id="btnSelBack" class="btn btn-ghost" data-hover><i data-icon="arrow-left"></i> Menu</button>
     </div>
   </div>
 
@@ -161,7 +237,7 @@
       <div id="introName" class="title"></div>
       <p id="introTip" class="lead text-amber-200"></p>
       <p id="introPlayers" class="lead opacity-85"></p>
-      <button id="introBtn" class="btn btn-play" data-hover>▶ Começar</button>
+      <button id="introBtn" class="btn btn-play" data-hover><i data-icon="play"></i> Começar</button>
     </div>
   </div>
 
@@ -170,8 +246,8 @@
     <div class="panel">
       <div class="title">PAUSA</div>
       <div class="flex flex-wrap gap-4 justify-center">
-        <button id="btnResume" class="btn btn-play" data-hover>▶ Continuar</button>
-        <button id="btnQuit" class="btn btn-ghost" data-hover>Menu</button>
+        <button id="btnResume" class="btn btn-play" data-hover><i data-icon="play"></i> Continuar</button>
+        <button id="btnQuit" class="btn btn-ghost" data-hover><i data-icon="home"></i> Menu</button>
       </div>
     </div>
   </div>
@@ -186,7 +262,7 @@
       <div id="resPlayers" class="lead text-amber-200"></div>
       <div class="flex flex-wrap gap-4 justify-center">
         <button id="btnNext" class="btn btn-play" data-hover>▶ Próximo cenário</button>
-        <button id="btnResMenu" class="btn btn-ghost" data-hover>Menu</button>
+        <button id="btnResMenu" class="btn btn-ghost" data-hover><i data-icon="home"></i> Menu</button>
       </div>
     </div>
   </div>
@@ -200,7 +276,7 @@
       <div class="lead text-amber-300" id="goBest"></div>
       <div class="flex flex-wrap gap-4 justify-center">
         <button id="btnAgain" class="btn btn-play" data-hover>↻ Tentar de novo</button>
-        <button id="btnMenu" class="btn btn-ghost" data-hover>Menu</button>
+        <button id="btnMenu" class="btn btn-ghost" data-hover><i data-icon="home"></i> Menu</button>
       </div>
     </div>
   </div>

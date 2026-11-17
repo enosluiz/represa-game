@@ -5,6 +5,13 @@ Jogos que você joga com as mãos, sem tocar na tela, usando a câmera do celula
 
 **Jogar:** https://www.levantaebrinca.com.br
 
+## Design system
+- **Base**: fundo escuro `#0b1220` (alto contraste para TV), cada jogo com gradiente próprio; tipografia **Fredoka** (títulos) + **Nunito** (texto), embutidas em `vendor/fonts` (OFL) para uso offline.
+- **Ícones**: Lucide (ISC) embutidos em `js/icons.js` — sem emojis na interface.
+- **Movimento**: Motion (MIT, `vendor/motion`) com molas (rigidez 320, amortecimento 28) na entrada de telas e cartões em cascata; respeita `prefers-reduced-motion`.
+- **Interação por mão**: segurar 1,2 s sobre botões; 2,5 s sobre a pausa durante o jogo; botão sob a mão ao abrir uma tela só aceita depois que a mão sai.
+- **Layout**: a grade de jogos sempre cabe na tela (6×2 deitado, 3×4 em pé), porque não há rolagem com a mão.
+
 ## Domínio próprio (GitHub Pages)
 O arquivo `CNAME` contém `www.levantaebrinca.com.br`. No provedor do domínio, crie:
 

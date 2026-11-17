@@ -8,6 +8,7 @@
 // =============================================================================
 
 import { texture, vignette, spotlight, sphere, groundShadow, sky, crowd, clearArtCache } from './art.js';
+import { icon, hydrateIcons } from './icons.js';
 
 // Assets do MediaPipe: cópia local (funciona offline) com fallback para CDN
 const MP_VERSION   = '0.10.14';
@@ -568,7 +569,7 @@ function render(now) {
     gctx.textAlign = 'center'; gctx.textBaseline = 'middle';
     for (const f of game.floaters) {
       gctx.globalAlpha = clamp(f.life, 0, 1);
-      gctx.font = `900 ${Math.round(MIN * 0.06)}px system-ui, sans-serif`; gctx.lineWidth = MIN * 0.01; gctx.strokeStyle = 'rgba(0,0,0,.7)';
+      gctx.font = `900 ${Math.round(MIN * 0.06)}px Fredoka, system-ui, sans-serif`; gctx.lineWidth = MIN * 0.01; gctx.strokeStyle = 'rgba(0,0,0,.7)';
       gctx.strokeText(f.text, f.x, f.y); gctx.fillStyle = f.color || '#fff'; gctx.fillText(f.text, f.x, f.y);
     }
     gctx.globalAlpha = 1;
@@ -699,7 +700,7 @@ function drawDebug() {
 // 9. HUD / UI
 // =============================================================================
 const hudCache = {};
-function setText(id, v) { if (hudCache[id] !== v) { hudCache[id] = v; $(id).textContent = v; } }
+function setText(id, v) { if (hudCache[id] !== v) { const grew = id === 'hudScore' && hudCache[id] !== undefined; hudCache[id] = v; $(id).textContent = v; if (grew) popEl($(id), 1.12); } }
 
 function updateHUD(now) {
   if (activeMini && !game) { /* o minijogo cuida do HUD */ }
@@ -725,15 +726,18 @@ let toastTimer = null;
 function toast(msg, ms = 2600) { const el = $('toast'); el.textContent = msg; el.classList.remove('hidden'); clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.add('hidden'), ms); }
 function banner(text) { const el = $('center'); el.textContent = text; el.classList.remove('pop'); void el.offsetWidth; el.classList.add('pop'); }
 
+function setOpt(id, val, on) { const el = $(id); el.querySelector('.set-val').textContent = val; el.classList.toggle('is-on', !!on); }
 function updateChips() {
-  $('optFacing').textContent = `📷 Câmera: ${settings.facing === 'user' ? 'Frontal' : 'Traseira'}`;
-  $('optMirror').textContent = `↔ Espelhar: ${settings.mirror ? 'Sim' : 'Não'}`;
-  $('optContact').textContent = `✋ Contato: ${settings.contact === 'palm' ? 'Palma' : 'Indicador'}`;
-  $('optCamView').textContent = `👁 Câmera ao fundo: ${Math.round(settings.camOpacity * 100)}%`;
-  $('optTv').textContent = `📺 Modo TV: ${settings.tvMode ? 'On' : 'Off'}`;
-  $('optDebug').textContent = `🐞 Debug: ${settings.debug ? 'On' : 'Off'}`;
-  $('optDelegate').textContent = `🧠 IA: ${settings.delegate === 'auto' ? 'Auto' : settings.delegate}${tracker ? ' (' + stats.delegate + ')' : ''}`;
-  for (const b of document.querySelectorAll('[data-players]')) b.classList.toggle('chip-on', b.dataset.players === settings.players);
+  setOpt('optFacing', settings.facing === 'user' ? 'Frontal' : 'Traseira');
+  setOpt('optMirror', settings.mirror ? 'Sim' : 'Não', settings.mirror);
+  setOpt('optContact', settings.contact === 'palm' ? 'Palma' : 'Indicador');
+  setOpt('optCamView', `${Math.round(settings.camOpacity * 100)}%`, settings.camOpacity > 0);
+  setOpt('optTv', settings.tvMode ? 'Ligado' : 'Desligado', settings.tvMode);
+  setOpt('optDebug', settings.debug ? 'Ligado' : 'Desligado', settings.debug);
+  setOpt('optDelegate', `${settings.delegate === 'auto' ? 'Automático' : settings.delegate}${tracker ? ' · ' + stats.delegate : ''}`);
+  setOpt('optFull', document.fullscreenElement ? 'Ligada' : 'Desligada', !!document.fullscreenElement);
+  for (const b of document.querySelectorAll('[data-players]')) { const on = b.dataset.players === settings.players; b.classList.toggle('chip-on', on); b.setAttribute('aria-pressed', on); }
+  for (const el of document.querySelectorAll('[data-best]')) { const v = progress[el.dataset.best] || 0; el.innerHTML = v ? `${icon('trophy', 'ico ico-xs')} ${v.toLocaleString('pt-BR')}` : 'Novo'; }
   $('bestMenu').textContent = `Campanha ${progress.bestCampaign.toLocaleString('pt-BR')} · Infinito ${progress.bestEndless.toLocaleString('pt-BR')}`;
 }
 
@@ -754,9 +758,13 @@ function buildSelect() {
 }
 
 // Hover-to-click
+const PAUSE_HOLD_MS = 2500; // pausar com a mão exige mais tempo (evita pausa acidental no jogo)
 function updateHover(dtMs) {
-  if (!['menu', 'select', 'paused', 'result', 'over', 'intro'].includes(state.phase)) return;
-  for (const el of document.querySelectorAll('.screen:not(.hidden) [data-hover]')) {
+  const inGame = ['playing', 'mini'].includes(state.phase);
+  if (!inGame && !['menu', 'settings', 'select', 'paused', 'result', 'over', 'intro'].includes(state.phase)) return;
+  const targets = inGame ? [$('btnPause')] : document.querySelectorAll('.screen:not(.hidden) [data-hover]');
+  const need = inGame ? PAUSE_HOLD_MS : CONFIG.HOVER_CLICK_MS;
+  for (const el of targets) {
     let p = hoverProgress.get(el) || 0;
     if (el.disabled) p = 0;
     else {
@@ -764,20 +772,38 @@ function updateHover(dtMs) {
       const over = cursors.some((c) => cx(c) >= r.left && cx(c) <= r.right && c.y >= r.top && c.y <= r.bottom);
       if (!over) hoverBlocked.delete(el);
       p = over && !hoverBlocked.has(el) ? p + dtMs : Math.max(0, p - dtMs * 2);
-      if (p >= CONFIG.HOVER_CLICK_MS) { p = 0; sfx.click(); el.classList.remove('bump'); void el.offsetWidth; el.classList.add('bump'); el.click(); }
+      if (over && !el._hov) { el._hov = true; if (!inGame) sfx.hover(); } if (!over) el._hov = false;
+      if (p >= need) { p = 0; sfx.click(); if (M()) popEl(el, 1.1); else { el.classList.remove('bump'); void el.offsetWidth; el.classList.add('bump'); } el.click(); }
     }
-    hoverProgress.set(el, p); el.style.setProperty('--p', (p / CONFIG.HOVER_CLICK_MS).toFixed(3));
+    hoverProgress.set(el, p); el.style.setProperty('--p', (p / need).toFixed(3));
   }
 }
 
 // =============================================================================
 // 10. FLUXO DE TELAS
 // =============================================================================
-const SCREENS = ['menu', 'select', 'intro', 'pause', 'result', 'gameover'];
+const SCREENS = ['menu', 'settings', 'select', 'intro', 'pause', 'result', 'gameover'];
 const hoverProgress = new WeakMap();
 const hoverBlocked = new WeakSet();
+// ---- Movimento de interface (Motion, molas). Desligado se o sistema pede menos movimento.
+const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)');
+const M = () => (!reduceMotion.matches && window.Motion) || null;
+const SPRING = { type: 'spring', stiffness: 320, damping: 28 };
+function animateIn(id) {
+  const mo = M(); if (!mo || !id) return;
+  const panel = $(id).querySelector('.panel'); if (!panel) return;
+  mo.animate(panel, { opacity: [0, 1], transform: ['translateY(28px) scale(.97)', 'translateY(0) scale(1)'] }, SPRING);
+  const items = panel.querySelectorAll('.game-card, .sc-card, .set-row, .btn, .seg');
+  if (items.length) mo.animate(items, { opacity: [0, 1], transform: ['translateY(16px)', 'translateY(0)'] }, { ...SPRING, delay: mo.stagger(0.035, { startDelay: 0.06 }) });
+}
+function popEl(el, scale = 1.18) {
+  const mo = M(); if (!mo || !el) return;
+  mo.animate(el, { transform: [`scale(${scale})`, 'scale(1)'] }, { type: 'spring', stiffness: 500, damping: 15 });
+}
 function showScreen(id) {
+  const prev = SCREENS.find((s) => !$(s).classList.contains('hidden'));
   for (const s of SCREENS) $(s).classList.toggle('hidden', s !== id);
+  if (id && id !== prev) animateIn(id);
   $('hud').classList.toggle('hidden', !['countdown', 'playing', 'paused'].includes(state.phase));
   // Botão que já está sob a mão ao abrir a tela só aceita hover depois que a mão sair dele
   for (const el of document.querySelectorAll('[data-hover]')) {
@@ -830,7 +856,7 @@ function finishScenario(won) {
   const two = activePlayers() === 2;
   $('resPlayers').textContent = two ? `P1 ${game.p[1].toLocaleString('pt-BR')}  ·  P2 ${game.p[2].toLocaleString('pt-BR')}  → ${game.p[1] === game.p[2] ? 'empate' : (game.p[1] > game.p[2] ? 'P1 venceu a rodada' : 'P2 venceu a rodada')}` : '';
   const last = state.scenarioIdx >= SCENARIOS.length - 1;
-  $('btnNext').textContent = last ? '🏆 Campanha concluída!' : '▶ Próximo cenário';
+  $('btnNext').innerHTML = last ? `${icon('trophy')} Campanha concluída!` : `${icon('play')} Próximo cenário`;
   $('btnNext').disabled = last;
   showScreen('result');
 }
@@ -845,7 +871,7 @@ function gameOver() {
   $('goScore').textContent = `${game.score.toLocaleString('pt-BR')} pts`;
   $('goStats').textContent = `${game.patched} reparos · ${endless ? 'nível ' + game.level : 'cenário ' + (state.scenarioIdx + 1)} · ${fmtTime(game.time)}`;
   $('goBest').textContent = isRecord ? '🏆 NOVO RECORDE!' : `Recorde: ${progress[key].toLocaleString('pt-BR')}`;
-  $('btnAgain').textContent = endless ? '↻ Jogar de novo' : '↻ Tentar de novo';
+  $('btnAgain').innerHTML = `${icon('refresh-cw')} ${endless ? 'Jogar de novo' : 'Tentar de novo'}`;
   showScreen('gameover');
 }
 
@@ -870,6 +896,7 @@ const sfx = {
   patch: (combo) => { const b = 520 + Math.min(combo, 8) * 45; tone(b, 0.08, 'square', 0.06); tone(b * 1.5, 0.12, 'square', 0.06, 0.07); },
   level: () => [523, 659, 784, 1046].forEach((f, i) => tone(f, 0.14, 'triangle', 0.09, i * 0.08)),
   over: () => [392, 330, 262, 196].forEach((f, i) => tone(f, 0.28, 'sawtooth', 0.07, i * 0.18)),
+  hover: () => tone(1320, 0.03, 'sine', 0.025),
   click: () => tone(880, 0.06, 'sine', 0.08), tick: () => tone(660, 0.1, 'sine', 0.1),
   boom: () => { noise(0.5, 0.35); tone(80, 0.5, 'sine', 0.2, 0, 30); },
   thunder: () => noise(1.2, 0.25),
@@ -920,7 +947,7 @@ async function refreshOfflineStatus() {
   try {
     const [model, wasm] = await Promise.all([caches.match(REMOTE_MODEL).then((r) => r || caches.match(LOCAL_MODEL)), caches.match(`${LOCAL_MP}wasm/vision_wasm_internal.wasm`)]);
     const ready = !!(model && wasm);
-    el.textContent = !navigator.onLine ? (ready ? '📴 Offline — jogando do cache' : '📴 Offline e o modelo ainda não foi baixado: conecte uma vez.') : (ready ? '📦 Pronto para jogar offline' : '📦 Ative a câmera uma vez com internet para liberar o modo offline');
+    el.textContent = !navigator.onLine ? (ready ? 'Offline · jogando do cache' : 'Offline e o modelo de IA ainda não foi baixado: conecte uma vez.') : (ready ? 'Pronto para jogar offline' : 'Ative a câmera uma vez com internet para liberar o modo offline');
   } catch { el.textContent = ''; }
 }
 
@@ -929,19 +956,22 @@ async function refreshOfflineStatus() {
 // =============================================================================
 $('btnCam').addEventListener('click', async () => {
   ensureAudio();
-  if (!window.isSecureContext) { setStatus('⚠️ A câmera só funciona em HTTPS (ou localhost).', true); return; }
+  if (!window.isSecureContext) { setStatus('A câmera só funciona em HTTPS (ou localhost).', true); return; }
   $('btnCam').disabled = true;
   try {
     setStatus('Abrindo a câmera…'); await startCamera();
     if (!tracker) { setStatus('Carregando o modelo de IA (só demora na 1ª vez)…'); await initTracker(); }
     state.phase = 'menu'; hide('btnCam'); show('menuPlay');
-    setStatus(`✅ Pronto (${stats.delegate}). Mostre a mão e segure sobre um botão.`);
+    setStatus(`Pronto · IA em ${stats.delegate}. Mostre a mão e segure sobre um jogo.`);
     setTimeout(refreshOfflineStatus, 1500);
   } catch (err) { console.error(err); setStatus(explainError(err), true); $('btnCam').disabled = false; }
 });
 $('btnCampaign').addEventListener('click', goSelect);
 $('btnEndless').addEventListener('click', startEndless);
 $('btnSelBack').addEventListener('click', goMenu);
+$('btnSettings').addEventListener('click', () => { state.phase = 'settings'; updateChips(); showScreen('settings'); });
+$('btnSetBack').addEventListener('click', goMenu);
+document.addEventListener('fullscreenchange', updateChips);
 $('introBtn').addEventListener('click', () => beginCountdown(3));
 $('btnNext').addEventListener('click', nextScenario);
 $('btnResMenu').addEventListener('click', goMenu);
@@ -989,7 +1019,7 @@ const miniAPI = {
     const isRecord = score > (progress[bestKey] || 0); if (isRecord) { progress[bestKey] = score; saveProgress(); }
     $('goTitle').textContent = title; $('goScore').textContent = `${score.toLocaleString('pt-BR')} pts`; $('goStats').textContent = stats;
     $('goBest').textContent = isRecord ? '🏆 NOVO RECORDE!' : `Recorde: ${(progress[bestKey] || 0).toLocaleString('pt-BR')}`;
-    $('btnAgain').textContent = '↻ Jogar de novo'; showScreen('gameover');
+    $('btnAgain').innerHTML = `${icon('refresh-cw')} Jogar de novo`; updateChips(); showScreen('gameover');
   },
 };
 import('./minigames.js').then((m) => m.install(miniAPI)).catch((e) => console.warn('minijogos não carregaram', e));
@@ -998,4 +1028,5 @@ import('./arcade.js').then((m) => m.install(miniAPI)).catch((e) => console.warn(
 import('./circo.js').then((m) => m.install(miniAPI)).catch((e) => console.warn('Circo não carregou', e));
 
 window.__represa = { get game() { return game; }, get cursors() { return cursors; }, get state() { return state; }, CONFIG, SCENARIOS, startScenario, startEndless, settings };
-resize(); updateChips(); setupPWA(); requestAnimationFrame(loop);
+hydrateIcons(); resize(); updateChips(); setupPWA(); requestAnimationFrame(loop);
+window.addEventListener('load', () => animateIn('menu'));

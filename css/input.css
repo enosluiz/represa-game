@@ -1,3 +1,7 @@
+@font-face { font-family: 'Fredoka'; font-weight: 600; font-display: swap; src: url('../vendor/fonts/fredoka-latin-600-normal.woff2') format('woff2'); }
+@font-face { font-family: 'Fredoka'; font-weight: 700; font-display: swap; src: url('../vendor/fonts/fredoka-latin-700-normal.woff2') format('woff2'); }
+@font-face { font-family: 'Nunito'; font-weight: 600; font-display: swap; src: url('../vendor/fonts/nunito-latin-600-normal.woff2') format('woff2'); }
+@font-face { font-family: 'Nunito'; font-weight: 800; font-display: swap; src: url('../vendor/fonts/nunito-latin-800-normal.woff2') format('woff2'); }
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -77,3 +81,89 @@
 .bump { animation: bump .45s cubic-bezier(.2,1.6,.4,1); }
 @keyframes bump { 0% { transform: scale(1.12); filter: brightness(1.6); } 60% { transform: scale(.96); } 100% { transform: scale(1); filter: brightness(1); } }
 .btn:active { transform: scale(.96); }
+
+/* =========================================================================
+   DESIGN SYSTEM — Levanta e Brinca
+   Base escura (alto contraste p/ TV), acento por jogo, tipografia Fredoka (títulos) + Nunito (texto).
+   Escala de z-index: canvas 0 · HUD 10 · telas 20 · avisos 30 · banner 40 · marca 45 · cursores 50
+   ========================================================================= */
+:root { --bg: #0b1220; --surface: rgba(15,23,42,.9); --line: rgba(255,255,255,.12); --text: #f8fafc; --muted: #cbd5e1; --accent: #38bdf8; --radius: 1.4rem; }
+body { font-family: 'Nunito', ui-sans-serif, system-ui, sans-serif; font-weight: 600; }
+.title, .title-sm, .hub-title, .btn, .hud-value, .gc-name, #center, .stars, .sc-num, .sc-name { font-family: 'Fredoka', 'Nunito', system-ui, sans-serif; letter-spacing: .01em; }
+.title { font-weight: 700; }
+.ico { width: 1.15em; height: 1.15em; flex: none; display: inline-block; vertical-align: -0.18em; }
+.ico-xs { width: .9em; height: .9em; }
+.btn { display: inline-flex; align-items: center; gap: .45em; cursor: pointer; }
+button { cursor: pointer; }
+button:focus-visible { outline: 3px solid #fde047; outline-offset: 3px; }
+
+/* ---- Hub ---- */
+.panel-hub { width: 94vw; max-width: 120rem; gap: 2vmin; padding: 3vmin 3.2vmin; }
+.hub-head { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 2vmin; flex-wrap: wrap; }
+.hub-brand { display: flex; align-items: center; gap: 1.6vmin; }
+.hub-mark { display: grid; place-items: center; width: clamp(44px, 9vmin, 96px); height: clamp(44px, 9vmin, 96px); border-radius: 30%;
+  background: linear-gradient(140deg, #fde047, #f97316 55%, #ec4899); color: #1f1300; box-shadow: 0 10px 30px rgba(249,115,22,.45); }
+.hub-mark .ico { width: 58%; height: 58%; stroke-width: 2.4; }
+.hub-title { font-size: clamp(26px, 6.2vmin, 76px); font-weight: 700; line-height: 1;
+  background: linear-gradient(90deg, #fff 30%, #fde68a); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.hub-sub { font-size: clamp(12px, 2.3vmin, 24px); color: var(--muted); margin-top: .3em; }
+.hub-actions { display: flex; align-items: center; gap: 1.2vmin; }
+.seg { display: inline-flex; padding: 4px; border-radius: 999px; background: rgba(255,255,255,.07); border: 1px solid var(--line); }
+.seg-btn { display: inline-flex; align-items: center; gap: .35em; min-height: 44px; padding: .45em 1em; border-radius: 999px; font-weight: 800;
+  font-size: clamp(13px, 2.3vmin, 24px); color: var(--muted); transition: background-color .2s, color .2s; }
+.seg-btn.chip-on { background: #0284c7; color: #fff; box-shadow: 0 4px 16px rgba(2,132,199,.5); }
+.icon-btn { display: grid; place-items: center; width: clamp(44px, 7vmin, 72px); height: clamp(44px, 7vmin, 72px); border-radius: 999px;
+  background: rgba(255,255,255,.08); border: 1px solid var(--line); color: var(--text); transition: background-color .2s; }
+.icon-btn .ico { width: 48%; height: 48%; }
+.cam-gate { display: flex; flex-direction: column; align-items: center; gap: 1.4vmin; }
+.status-pill { font-size: clamp(13px, 2.4vmin, 26px); color: #7dd3fc; padding: .35em 1em; border-radius: 999px; background: rgba(56,189,248,.1); border: 1px solid rgba(56,189,248,.25); }
+.hub-foot { display: flex; flex-direction: column; align-items: center; gap: .6vmin; }
+.update-bar { display: flex; align-items: center; gap: .7em; border-radius: 1rem; background: rgba(12,74,110,.7); border: 1px solid rgba(56,189,248,.4); padding: .4em 1em; }
+
+/* ---- Cartões de jogo ---- */
+/* Grade sempre cabe na tela (controle por mão não rola): 6×2 deitado, 3×4 em pé */
+.game-grid { width: 100%; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 1.4vmin; --card-h: clamp(78px, 25vh, 250px); }
+@media (max-aspect-ratio: 4/3) { .game-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); --card-h: clamp(78px, 15vh, 220px); } }
+.game-card { position: relative; overflow: hidden; display: flex; flex-direction: column; align-items: flex-start; text-align: left; gap: .35vmin;
+  height: var(--card-h); min-height: 0; padding: 1.4vmin 1.5vmin; border-radius: var(--radius);
+  background: linear-gradient(155deg, var(--g1), var(--g2)); /* fallback sem color-mix */
+  background: radial-gradient(120% 90% at 100% 0%, color-mix(in srgb, var(--g1) 55%, transparent), transparent 60%), linear-gradient(155deg, var(--g1), var(--g2));
+  border: 1px solid rgba(255,255,255,.18); box-shadow: inset 0 1px 0 rgba(255,255,255,.25), 0 10px 26px rgba(0,0,0,.35);
+  color: #fff; text-shadow: 0 2px 8px rgba(0,0,0,.45); }
+.game-card::before { content: ""; position: absolute; inset: 0; background: linear-gradient(115deg, transparent 35%, rgba(255,255,255,.22) 50%, transparent 65%);
+  transform: translateX(calc(-100% + var(--p, 0) * 200%)); pointer-events: none; }
+.gc-icon { display: grid; place-items: center; width: clamp(30px, 7vmin, 80px); height: clamp(30px, 7vmin, 80px); border-radius: 28%;
+  background: rgba(255,255,255,.2); border: 1px solid rgba(255,255,255,.3); margin-bottom: auto; }
+.gc-icon .ico { width: 56%; height: 56%; stroke-width: 2.2; }
+.gc-name { font-size: clamp(14px, 2.9vmin, 34px); font-weight: 700; line-height: 1.05; margin-top: 1vmin; }
+.gc-tag { font-size: clamp(10px, 1.85vmin, 20px); opacity: .9; line-height: 1.2; }
+.gc-best { position: absolute; top: 1.3vmin; right: 1.4vmin; font-size: clamp(10px, 1.7vmin, 18px); font-weight: 800; padding: .2em .6em; border-radius: 999px;
+  background: rgba(0,0,0,.3); display: inline-flex; align-items: center; gap: .3em; }
+.game-card[data-hover]::after { background: rgba(255,255,255,.18); }
+
+/* ---- Ajustes ---- */
+.set-grid { width: 100%; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.2vmin; }
+@media (max-width: 640px) { .set-grid { grid-template-columns: 1fr; } }
+.set-row { display: flex; align-items: center; gap: .8em; min-height: 52px; padding: .7em 1em; border-radius: 1rem; text-align: left;
+  background: rgba(255,255,255,.06); border: 1px solid var(--line); font-size: clamp(14px, 2.4vmin, 26px); transition: background-color .2s, border-color .2s; }
+.set-row:hover { background: rgba(255,255,255,.1); }
+.set-row .ico { width: 1.3em; height: 1.3em; color: #7dd3fc; }
+.set-label { flex: 1; }
+.set-val { font-weight: 800; color: var(--muted); }
+.set-row.is-on .set-val { color: #4ade80; }
+.pause-btn { display: grid; place-items: center; min-width: 52px; }
+.pause-btn .ico { width: clamp(22px, 4.6vmin, 56px); height: clamp(22px, 4.6vmin, 56px); }
+
+/* ---- Movimento reduzido ---- */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+  [data-hover] { transform: none !important; }
+}
+
+/* Utilitário "hidden" sempre vence classes de layout (flex/grid) declaradas acima */
+.hidden { display: none !important; }
+/* Reserva espaço para a marca no rodapé: o painel nunca fica sob ela */
+.screen { padding-bottom: clamp(30px, 6.5vmin, 64px); }
+.panel { max-height: calc(100vh - clamp(30px, 6.5vmin, 64px) - 2vh); }
+.panel-hub { gap: 1.6vmin; }
+@media (max-height: 460px) { .gc-tag, .hub-sub, .hub-foot .small:last-child { display: none; } .gc-best { font-size: 10px; } }
