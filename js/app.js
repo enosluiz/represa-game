@@ -74,7 +74,7 @@ const state = {
   scenarioIdx: 0,
   p2SeenAt: -1e9,      // última vez que uma mão do lado do jogador 2 foi vista (modo auto)
 };
-const APP_VERSION = '4.6.2';
+const APP_VERSION = '4.6.3';
 const stats = { fps: 0, detFps: 0, inferMs: 0, frames: 0, detFrames: 0, lastTick: 0, delegate: '-', handsEver: 0, maxHands: 0, handSize: 0 };
 
 let game = null;
@@ -877,9 +877,10 @@ const PAUSE_HOLD_MS = 2500; // pausar com a mão exige mais tempo (evita pausa a
 function updateHover(dtMs) {
   const inGame = ['playing', 'mini'].includes(state.phase);
   if (!inGame && !['menu', 'settings', 'feedback', 'camtest', 'install', 'select', 'paused', 'result', 'over', 'intro'].includes(state.phase)) return;
-  const targets = inGame ? [$('btnPause')] : document.querySelectorAll('.screen:not(.hidden) [data-hover]');
-  const need = inGame ? PAUSE_HOLD_MS : CONFIG.HOVER_CLICK_MS;
+  // Na partida: pausa (segurar mais tempo) + botões de jogo marcados com data-hover-ingame que estejam visíveis
+  const targets = inGame ? [$('btnPause'), ...document.querySelectorAll('[data-hover-ingame]:not(.hidden)')] : document.querySelectorAll('.screen:not(.hidden) [data-hover]');
   for (const el of targets) {
+    const need = inGame && el.id === 'btnPause' ? PAUSE_HOLD_MS : CONFIG.HOVER_CLICK_MS;
     let p = hoverProgress.get(el) || 0;
     if (el.disabled) p = 0;
     else {
@@ -929,7 +930,7 @@ function showScreen(id) {
   }
 }
 
-function goMenu() { setNumHands(2); state.phase = 'menu'; game = null; activeMini = null; $('hudWaterBox').classList.remove('hidden'); particles.length = 0; rain.length = 0; bgCacheKey = ''; updateChips(); engage?.renderMenu(); showScreen('menu'); }
+function goMenu() { setNumHands(2); $('btnSkipTut').classList.add('hidden'); state.phase = 'menu'; game = null; activeMini = null; $('hudWaterBox').classList.remove('hidden'); particles.length = 0; rain.length = 0; bgCacheKey = ''; updateChips(); engage?.renderMenu(); showScreen('menu'); }
 function goSelect() { state.phase = 'select'; buildSelect(); showScreen('select'); }
 
 function startEndless() {
@@ -1145,7 +1146,7 @@ const miniAPI = {
   get W() { return W; }, get H() { return H; }, get MIN() { return MIN; }, get cursors() { return cursors; }, cx, toScreen, get actx() { return actx; },
   state, settings, sfx, tone, noise, banner, toast, show, hide, setText, showScreen, PLAYER_COLORS, activePlayers,
   emit, particles, rand, randInt, clamp, lerp, pick, fmtTime, contactRadius, ensureAudio, requestWakeLock, progress, saveProgress,
-  startMini(mini) { ensureAudio(); requestWakeLock(); setNumHands(mini.numHands || 2); game = null; activeMini = mini; state.lastGame = mini.name; window.__mini = mini; mini.start(); $('hudWaterBox').classList.add('hidden'); beginCountdown(3); },
+  startMini(mini) { ensureAudio(); requestWakeLock(); setNumHands(mini.numHands || 2); $('btnSkipTut').classList.add('hidden'); game = null; activeMini = mini; state.lastGame = mini.name; window.__mini = mini; mini.start(); $('hudWaterBox').classList.add('hidden'); beginCountdown(3); },
   endMini({ title, score, stats, bestKey }) {
     state.phase = 'over'; sfx.over();
     const prevBest = progress[bestKey] || 0, isRecord = score > prevBest; if (isRecord) { progress[bestKey] = score; saveProgress(); }

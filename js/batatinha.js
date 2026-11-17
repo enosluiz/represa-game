@@ -41,21 +41,28 @@ export function install(api) {
     GRACE: 0.9,                      // tempo para levantar as mãos depois que o robô vira (s)
     REACQ_MS: 400,                   // mão sumida por mais que isso: referência recomeça
     LOST_HAND_GRACE: 0.3,
+    CARD: 4.6,                       // duração de cada cartão do explicativo (s)
   };
   const CHANT = ['BA', 'TA', 'TI', 'NHA', 'FRI', 'TA', '1', '2', '3!'];
   const CHANT_HZ = [392, 440, 494, 523, 587, 659, 523, 659, 784];
+  const CAL_KEY = 'represa.batatinhaCal';
+  const loadCal = () => { try { const v = JSON.parse(localStorage.getItem(CAL_KEY) || 'null'); return v && v.low - v.up >= 0.15 ? v : null; } catch { return null; } };
+  const saveCal = (v) => { try { localStorage.setItem(CAL_KEY, JSON.stringify(v)); } catch { /* sem storage */ } };
   const aspect = () => { const v = $('video'); return v && v.videoHeight ? v.videoWidth / v.videoHeight : 4 / 3; };
 
   const game = {
-    name: 'Batatinha 1, 2, 3', DURATION: 90, hideCursors: true, numHands: 4,
+    name: 'Batatinha 1, 2, 3', DURATION: 90, numHands: 4,
+    // Cursores aparecem só no explicativo/tutorial (para achar o botão "Pular"); na corrida
+    // ficam ocultos para o tremor do cursor não parecer "movimento" na estátua.
+    get hideCursors() { return this.phase !== 'intro' && this.phase !== 'tut'; },
     start() {
       this.t = 0; this.level = 0; this.tracks = []; this.mLast = null; this.thr = M.THR_DEFAULT; this.fx = []; this.seen3 = -1e9; this.c3 = 0; this.lastDet = null;
       this.P = { 1: this.newPlayer(), 2: this.newPlayer() };
-      this.phase = 'tut'; this.ph = 0; this.phDur = 0; this.turnK = 0; this.chantI = -1; this.fast = false;
+      this.phase = 'intro'; this.introT = 0; this.ph = 0; this.phDur = 0; this.turnK = 0; this.chantI = -1; this.fast = false;
       this.tut = { step: 0, hold: 0, flash: 0, maxDrift: 0, msg: '', msgT: 0 };
       this.m = { vis: { 1: 0, 2: 0 }, up: { 1: 0, 2: 0 }, drift: { 1: 0, 2: 0 }, arms: { 1: [], 2: [] } };
       show('hud'); setText('hudScore', '0%'); setText('hudLevelLabel', 'ZAPS'); setText('hudLevel', '0'); setText('hudTime', fmtTime(this.DURATION)); hide('hudCombo'); hide('hudP');
-      banner('Batatinha frita 1, 2, 3!');
+      $('btnSkipTut').classList.remove('hidden');
     },
     newPlayer() { return { prog: 0, target: 0, steps: 0, zaps: 0, frozen: 0, zap: 0, done: 0, walk: 0, lastStep: 0, zappedThisRed: false, cal: { up: 0.3, low: 0.7, ok: false }, tc: { sum: 0, n: 0, hold: 0, strokes: 0 }, warn: '', warnT: 0 }; },
 
@@ -139,6 +146,16 @@ export function install(api) {
     warn(n, text) { const P = this.P[n]; if (P.warnT <= 0 || P.warn !== text) { P.warn = text; P.warnT = 1.1; } },
 
     // ---- Ciclo do robô ------------------------------------------------------
+    /** Pular explicativo + tutorial: usa o último ajuste salvo neste aparelho (ou o padrão). */
+    skip() {
+      if (this.phase !== 'intro' && this.phase !== 'tut') return;
+      const sv = loadCal();
+      for (const n of [1, 2]) Object.assign(this.P[n].cal, sv ? { up: sv.up, low: sv.low, ok: true } : { up: 0.3, low: 0.7, ok: false });
+      this.thr = sv ? sv.thr : M.THR_DEFAULT;
+      $('btnSkipTut').classList.add('hidden'); this.tut.step = 5;
+      banner(sv ? 'VALENDO!' : 'VALENDO! (ajuste padrão)'); sfx.level();
+      this.t = 0; this.turnK = 1; this.setPhase('back', performance.now());
+    },
     isRed() { return this.phase === 'red' || this.phase === 'turn' || (this.phase === 'tut' && this.tut.step === 4); },
     setPhase(p, now) {
       this.phase = p; this.ph = 0;
@@ -174,6 +191,12 @@ export function install(api) {
       for (const f of this.fx) f.life -= dt; this.fx = this.fx.filter((f) => f.life > 0);
 
       // ---- Tutorial: ensina e calibra (altura do alto/cintura e trepidação) --
+      if (this.phase === 'intro') {             // explicativo animado (3 cartões), depois o tutorial
+        this.introT += dt; const card = Math.floor(this.introT / M.CARD);
+        if (card !== this.introCard) { this.introCard = card; if (card < 3) sfx.tick(); }
+        if (this.introT >= M.CARD * 3) { this.phase = 'tut'; banner('Agora você: tutorial'); }
+        return;
+      }
       if (this.phase === 'tut') return this.tutorial(dt, now, m, ids);
 
       this.t += dt; this.ph += dt;
@@ -245,6 +268,8 @@ export function install(api) {
         else { T.maxDrift = Math.max(T.maxDrift, d); T.hold += dt; }
         if (T.hold >= 1.6) {
           this.thr = clamp(T.maxDrift * 2.2 + 0.15, 0.35, 0.8); T.step = 5;
+          saveCal({ up: this.P[1].cal.up, low: this.P[1].cal.low, thr: this.thr });
+          $('btnSkipTut').classList.add('hidden');
           banner('VALENDO!'); sfx.level(); this.t = 0; this.setPhase('back', now); this.turnK = 1;
         }
       }
@@ -289,6 +314,7 @@ export function install(api) {
       const order = [...ids].sort((a, b) => this.P[b].prog - this.P[a].prog);
       for (const n of order) this.drawAvatar(ctx, t, n, R);
       vignette(ctx, W, H, red ? 0.7 : 0.45);
+      if (this.phase === 'intro') return this.drawIntro(ctx, t);
       this.drawUI(ctx, t, now, ids, red);
     },
 
@@ -401,6 +427,84 @@ export function install(api) {
       }
     },
 
+    // ---- Explicativo: bonequinho "treinador" que demonstra cada movimento ------------
+    /** pose: 'show' | 'up' | 'low' | 'run' | 'statue' | 'zap' */
+    coach(ctx, t, x, y, s, pose, col = '#a78bfa') {
+      const bodyTop = y - s * 0.9, run = Math.sin(t * 5.5);
+      let aL, aR;                                          // 0 = braço na cintura, 1 = no alto
+      if (pose === 'up' || pose === 'statue') aL = aR = 1;
+      else if (pose === 'low' || pose === 'zap') aL = aR = 0.05;
+      else if (pose === 'show') aL = aR = 0.62 + 0.06 * Math.sin(t * 8);
+      else { aL = 0.5 + 0.5 * run; aR = 0.5 - 0.5 * run; }
+      groundShadow(ctx, x, y, s * 0.32, s * 0.08, 0.35); ctx.lineCap = 'round';
+      const leg = pose === 'run' ? run : 0;
+      ctx.strokeStyle = '#1e293b'; ctx.lineWidth = s * 0.11;
+      ctx.beginPath(); ctx.moveTo(x - s * 0.08, y - s * 0.35); ctx.lineTo(x - s * 0.1 + leg * s * 0.12, y - s * 0.02); ctx.moveTo(x + s * 0.08, y - s * 0.35); ctx.lineTo(x + s * 0.1 - leg * s * 0.12, y - s * 0.02); ctx.stroke();
+      const len = s * 0.34, ends = [];
+      ctx.strokeStyle = col; ctx.lineWidth = s * 0.1;
+      [[-1, aL], [1, aR]].forEach(([sg, a]) => {
+        const th = lerp(0.12, 0.97, a) * Math.PI, sx = x + sg * s * 0.18, sy = bodyTop + s * 0.18, ex = sx + sg * Math.sin(th) * len, ey = sy + Math.cos(th) * len;
+        ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(ex, ey); ctx.stroke(); ends.push({ x: ex, y: ey, sg, a });
+      });
+      ctx.fillStyle = col; ctx.beginPath(); ctx.roundRect(x - s * 0.2, bodyTop + s * 0.1, s * 0.4, s * 0.48, s * 0.14); ctx.fill();
+      ctx.fillStyle = '#fcd9b6'; ctx.beginPath(); ctx.arc(x, bodyTop - s * 0.05, s * 0.17, 0, Math.PI * 2); ctx.fill();
+      for (const e of ends) { ctx.beginPath(); ctx.arc(e.x, e.y, s * 0.07, 0, Math.PI * 2); ctx.fill(); }   // mãos
+      ctx.fillStyle = '#0f172a'; for (const ex of [-0.06, 0.06]) { ctx.beginPath(); ctx.arc(x + ex * s, bodyTop - s * 0.07, s * 0.022, 0, Math.PI * 2); ctx.fill(); }
+      // Setas: no "run", uma sobe e a outra desce (alternado); no "statue", ✓ parado
+      const arrow = (ax, ay, dir, c) => { const h = s * 0.16; ctx.strokeStyle = c; ctx.fillStyle = c; ctx.lineWidth = s * 0.035;
+        ctx.beginPath(); ctx.moveTo(ax, ay + h * dir); ctx.lineTo(ax, ay - h * dir); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(ax, ay - h * dir - s * 0.05 * dir); ctx.lineTo(ax - s * 0.05, ay - h * dir + s * 0.02 * dir); ctx.lineTo(ax + s * 0.05, ay - h * dir + s * 0.02 * dir); ctx.closePath(); ctx.fill(); };
+      if (pose === 'run') { const goingUpL = Math.cos(t * 5.5) > 0; arrow(x - s * 0.62, bodyTop + s * 0.15, goingUpL ? 1 : -1, '#4ade80'); arrow(x + s * 0.62, bodyTop + s * 0.15, goingUpL ? -1 : 1, '#4ade80'); }
+      if (pose === 'up') { arrow(x - s * 0.62, bodyTop, 1, '#4ade80'); arrow(x + s * 0.62, bodyTop, 1, '#4ade80'); }
+      if (pose === 'low') { arrow(x - s * 0.62, bodyTop + s * 0.3, -1, '#4ade80'); arrow(x + s * 0.62, bodyTop + s * 0.3, -1, '#4ade80'); }
+      if (pose === 'zap') { ctx.fillStyle = `rgba(125,211,252,${0.4 + 0.2 * Math.sin(t * 20)})`; ctx.beginPath(); ctx.roundRect(x - s * 0.42, bodyTop - s * 0.3, s * 0.84, s * 1.25, s * 0.12); ctx.fill(); }
+    },
+
+    /** Cartões "Como jogar" antes do tutorial. */
+    drawIntro(ctx, t) {
+      const W = api.W, H = api.H, MIN = api.MIN, card = Math.min(2, Math.floor(this.introT / M.CARD)), k = (this.introT % M.CARD) / M.CARD;
+      ctx.fillStyle = 'rgba(2,6,23,.82)'; ctx.fillRect(0, 0, W, H);
+      const portrait = H > W * 1.1, pw = Math.min(W * 0.92, MIN * 1.5), ph = portrait ? H * 0.6 : H * 0.66, px = (W - pw) / 2, py = portrait ? H * 0.16 : H * 0.13;
+      ctx.fillStyle = card === 0 ? '#0c4a6e' : '#7f1d1d'; ctx.beginPath(); ctx.roundRect(px, py, pw, ph, MIN * 0.04); ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,255,.25)'; ctx.lineWidth = 3; ctx.stroke();
+      const fit = (txt, base) => Math.min(base, pw * 0.9 / (txt.length * 0.56));
+      label(ctx, `COMO JOGAR ${card + 1}/3`, W / 2, py + ph * 0.08, MIN * 0.035, '#93c5fd');
+      const T = [
+        ['O robô fica DE COSTAS cantando', 'CORRA no lugar: braços ALTERNADOS,', 'um sobe e o outro desce, POR INTEIRO'],
+        ['Quando ele VIRA:', 'MÃOS PARA CIMA e vire ESTÁTUA', 'até ele virar de costas de novo'],
+        ['Mão abaixada ou se mexeu?', 'ZAP! Volta para a LARGADA', 'Chegue primeiro na linha de CHEGADA'],
+      ][card];
+      label(ctx, T[0], W / 2, py + ph * 0.17, fit(T[0], MIN * 0.05), '#fff');
+      // Cena: robô à esquerda, treinador à direita
+      const sy = py + ph * 0.72, rs = Math.min(ph * 0.42, pw * 0.3), saveK = this.turnK, savePh = this.phase;
+      this.turnK = card === 0 ? 0 : 1; this.phase = card === 0 ? 'green' : 'turn';
+      const R = this.robot(ctx, t, px + pw * 0.26, sy, rs);
+      this.turnK = saveK; this.phase = savePh;
+      const cx = px + pw * 0.72, cs = Math.min(ph * 0.42, pw * 0.36);
+      this.coach(ctx, t, cx, sy, cs, ['run', 'statue', 'zap'][card]);
+      if (card === 0) { const notes = ['BA', 'TA', 'TI', 'NHA', '1, 2, 3!']; label(ctx, notes[Math.floor(t * 2.2) % notes.length], px + pw * 0.26, sy - rs * 1.15, MIN * 0.04, '#fde047'); }
+      if (card === 2 && Math.sin(t * 6) > -0.2) { ctx.save(); ctx.strokeStyle = '#fecaca'; ctx.shadowColor = '#ef4444'; ctx.shadowBlur = MIN * 0.03; ctx.lineWidth = MIN * 0.01;
+        ctx.beginPath(); ctx.moveTo(R.eye.x, R.eye.y); ctx.lineTo(cx, sy - cs * 0.6); ctx.stroke(); ctx.restore(); label(ctx, 'ZAP!', cx, sy - cs * 1.25, MIN * 0.05, '#fde047'); }
+      if (card === 1) label(ctx, 'mãos no alto ✓  parado ✓', cx, sy + MIN * 0.04, MIN * 0.03, '#86efac');
+      label(ctx, T[1], W / 2, py + ph * 0.84, fit(T[1], MIN * 0.045), '#fde047');
+      label(ctx, T[2], W / 2, py + ph * 0.93, fit(T[2], MIN * 0.04), '#e2e8f0');
+      // Bolinhas de progresso dos cartões
+      for (let i = 0; i < 3; i++) { ctx.fillStyle = i < card ? '#4ade80' : i === card ? '#fde047' : 'rgba(255,255,255,.3)'; ctx.beginPath(); ctx.arc(W / 2 + (i - 1) * MIN * 0.04, py + ph + MIN * 0.04, MIN * 0.012 * (i === card ? 1.3 : 1), 0, Math.PI * 2); ctx.fill(); }
+      ctx.fillStyle = 'rgba(255,255,255,.2)'; ctx.fillRect(px, py + ph - MIN * 0.012, pw, MIN * 0.012); ctx.fillStyle = '#fde047'; ctx.fillRect(px, py + ph - MIN * 0.012, pw * k, MIN * 0.012);
+      const hint = loadCal() ? 'Já sabe jogar? Segure a mão em PULAR TUTORIAL' : 'Segure a mão em PULAR TUTORIAL para ir direto';
+      label(ctx, hint, W / 2, py + ph + MIN * 0.09, fit(hint, MIN * 0.03), 'rgba(226,232,240,.85)');
+    },
+
+    /** Quadro "FAÇA ASSIM" do tutorial: o treinador repete o gesto do passo atual. */
+    drawDemo(ctx, t) {
+      const W = api.W, H = api.H, MIN = api.MIN, st = Math.min(this.tut.step, 4);
+      const bw = H > W ? W * 0.36 : Math.min(W * 0.3, MIN * 0.42), bh = bw * 1.25, bx = W - bw - MIN * 0.025, by = H * 0.3;
+      ctx.fillStyle = 'rgba(2,6,23,.72)'; ctx.beginPath(); ctx.roundRect(bx, by, bw, bh, MIN * 0.025); ctx.fill();
+      ctx.strokeStyle = '#fde047'; ctx.lineWidth = 2; ctx.stroke();
+      label(ctx, 'FAÇA ASSIM', bx + bw / 2, by + bh * 0.08, Math.min(MIN * 0.032, bw * 0.11), '#fde047');
+      this.coach(ctx, t, bx + bw / 2, by + bh * 0.9, bh * 0.62, ['show', 'up', 'low', 'run', 'statue'][st]);
+    },
+
     drawUI(ctx, t, now, ids, red) {
       const W = api.W, H = api.H, MIN = api.MIN;
       const fit = (txt, base) => Math.min(base, W * 0.92 / (txt.length * 0.56));
@@ -414,6 +518,7 @@ export function install(api) {
         const bw = W * 0.4; ctx.fillStyle = 'rgba(2,6,23,.55)'; ctx.fillRect(W / 2 - bw / 2, H * 0.2, bw, MIN * 0.018);
         ctx.fillStyle = '#4ade80'; ctx.fillRect(W / 2 - bw / 2, H * 0.2, bw * clamp(T.hold / goal, 0, 1), MIN * 0.018);
         if (T.msgT > 0) label(ctx, T.msg, W / 2, H * 0.25, MIN * 0.04, '#fca5a5');
+        this.drawDemo(ctx, t);
       } else if (this.phase === 'green' || this.phase === 'back') {
         const n = this.phase === 'green' ? this.chantI : -1, size = MIN * 0.06, words = ['BATATINHA', 'FRITA', '1, 2, 3!'];
         const lit = n < 0 ? 0 : n < 4 ? 1 : n < 6 ? 2 : 3;
@@ -431,6 +536,7 @@ export function install(api) {
 
     finish(ids) {
       if (api.state.phase !== 'mini') return;
+      $('btnSkipTut').classList.add('hidden');
       const sc = (n) => { const P = this.P[n]; return P.done ? 1000 + Math.round(Math.max(0, this.DURATION - P.done) * 15) + (P.zaps ? 0 : 400) : Math.round(P.target * 700); };
       const desc = (n) => { const P = this.P[n]; return `${P.done ? `chegou em ${fmtTime(P.done)}` : `${Math.floor(P.target * 100)}% do caminho`} · ${P.zaps} zap(s)`; };
       if (ids.length > 1) {
@@ -444,5 +550,6 @@ export function install(api) {
   };
 
   $('btnBatatinha').addEventListener('click', () => api.startMini(game));
+  $('btnSkipTut').addEventListener('click', () => { if (window.__mini === game) game.skip(); });
   return { batatinha: game };
 }
