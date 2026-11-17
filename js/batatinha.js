@@ -5,7 +5,7 @@
 //   • Cada jogador joga com as DUAS mãos (2 jogadores = 4 mãos; o detector passa a
 //     procurar 4 mãos só neste jogo). Em 2 jogadores: metade esquerda = J1, direita = J2.
 //   • Robô de costas cantando: o jogador "corre" subindo e descendo os braços. Cada
-//     PASSO só conta se o braço fizer o movimento COMPLETO (da cintura até o alto, ou
+//     PASSO só conta com os braços ALTERNADOS (como numa corrida) e o movimento COMPLETO (da cintura até o alto, ou
 //     o contrário) — a amplitude é medida na calibração do tutorial. Meio movimento
 //     não anda e aparece "movimento incompleto".
 //   • Robô virou: pare com as MÃOS PARA CIMA e fique imóvel. Mão abaixada ou qualquer
@@ -34,6 +34,7 @@ export function install(api) {
     STEPS: 26,                       // passos completos para cruzar a pista
     STEP_GAP: 0.16,                  // intervalo mínimo entre passos do mesmo jogador (s)
     FULL: 0.6,                       // fração da amplitude calibrada que conta como movimento completo
+    ALT: 0.35,                       // braços alternados: o outro braço precisa estar ≥35% da amplitude do lado oposto
     HYS: 0.035,                      // histerese para reconhecer a virada do braço (altura da imagem)
     UP_FRAC: 0.4,                    // "mão no alto" = acima de alto + 40% da amplitude
     THR_DEFAULT: 0.45,               // limite de imobilidade (palmas) se não calibrar
@@ -74,7 +75,7 @@ export function install(api) {
       // e isso zeraria o movimento a cada salto. Aqui o pareamento é pelo vizinho mais
       // próximo na imagem, com raio largo, e só quando chega uma detecção nova.
       const cur = api.state.lastLandmarks || [];
-      if (cur === this.lastDet && this.mLast) return { ...this.mLast, strokes: { 1: 0, 2: 0 }, partial: { 1: 0, 2: 0 } };
+      if (cur === this.lastDet && this.mLast) return { ...this.mLast, strokes: { 1: 0, 2: 0 }, partial: { 1: 0, 2: 0 }, together: null, noPair: null };
       this.lastDet = cur;
       this.c3 = cur.length >= 3 ? Math.min(30, this.c3 + 1) : Math.max(0, this.c3 - 0.25); if (this.c3 >= 6) this.seen3 = now;
       const asp = aspect(), ids = this.ids(now), two = ids.length > 1;
@@ -93,14 +94,27 @@ export function install(api) {
       }
       obs.forEach((o, i) => { if (usedO.has(i)) return; const h = { rx: o.x, ry: o.y, x: o.x, y: o.y, palm: o.palm, lastFresh: now, ref: null, refAt: now + M.LOST_HAND_GRACE * 1000, drift: 0, dir: 0, from: o.y, ext: o.y, vy: 0, sx: o.sx }; this.tracks.push(h); usedH.add(h); });
       this.tracks = this.tracks.filter((h) => now - h.lastFresh <= M.REACQ_MS);
+      const mine = { 1: [], 2: [] };
       for (const h of this.tracks) {
         if (!usedH.has(h)) continue;                       // só mãos presentes NESTA detecção
         const pl = two && h.sx >= api.W / 2 ? 2 : 1;       // em 2 jogadores: metade esquerda = J1
+        mine[pl].push(h);
         m.vis[pl]++; m.ys[pl].push(h.y); m.drift[pl] = Math.max(m.drift[pl], h.drift || 0);
         if (h.vy > 0.12) m.still[pl] = false;
         if (h.y <= this.upLine(pl)) m.up[pl]++;
         m.arms[pl].push({ sx: h.sx, a: clamp((this.P[pl].cal.low - h.y) / this.span(pl), 0, 1.15) });
-        if (h.stroke) { const travel = h.stroke; h.stroke = 0; if (travel >= M.FULL * this.span(pl)) m.strokes[pl]++; else if (travel >= 0.3 * this.span(pl)) m.partial[pl]++; }
+      }
+      // Passo = braço completa o movimento E o outro braço está do lado OPOSTO (corrida:
+      // um no alto, outro embaixo). Braços subindo e descendo juntos não andam.
+      for (const pl of [1, 2]) for (const h of mine[pl]) {
+        if (!h.stroke) continue;
+        const travel = h.stroke, span = this.span(pl); h.stroke = 0;
+        if (travel < M.FULL * span) { if (travel >= 0.3 * span) m.partial[pl]++; continue; }
+        const other = mine[pl].filter((o) => o !== h).sort((a, b) => Math.abs(a.sx - h.sx) - Math.abs(b.sx - h.sx)).pop();
+        if (!other) { m.noPair = m.noPair || {}; m.noPair[pl] = 1; continue; }
+        // h.sdir < 0: terminou SUBINDO (está no alto) → o outro precisa estar mais baixo; e vice-versa
+        const gap = (other.y - h.stroke_ext) * -h.sdir;    // ponto extremo que este braço alcançou
+        if (gap >= M.ALT * span) m.strokes[pl]++; else { m.together = m.together || {}; m.together[pl] = 1; }
       }
       for (const n of [1, 2]) m.arms[n].sort((a, b) => a.sx - b.sx);
       this.mLast = m; return m;
@@ -119,7 +133,7 @@ export function install(api) {
       if (h.dir === 0) { if (Math.abs(h.y - h.from) > M.HYS) { h.dir = Math.sign(h.y - h.from); h.ext = h.y; } return 0; }
       if ((h.y - h.ext) * h.dir > 0) { h.ext = h.y; return 0; }           // continua na mesma direção
       if (Math.abs(h.y - h.ext) <= M.HYS) return 0;
-      const travel = Math.abs(h.ext - h.from); h.from = h.ext; h.ext = h.y; h.dir = -h.dir; return travel;
+      const travel = Math.abs(h.ext - h.from); h.sdir = Math.sign(h.ext - h.from); h.stroke_ext = h.ext; h.from = h.ext; h.ext = h.y; h.dir = -h.dir; return travel;
     },
     resetRefs(now, delay) { for (const h of this.tracks) { h.ref = null; h.drift = 0; h.refAt = now + delay * 1000; } },
     warn(n, text) { const P = this.P[n]; if (P.warnT <= 0 || P.warn !== text) { P.warn = text; P.warnT = 1.1; } },
@@ -172,6 +186,7 @@ export function install(api) {
           const P = this.P[n]; if (P.done || P.frozen > 0) continue;
           if (m.vis[n] < 2) this.warn(n, 'mostre as DUAS mãos');
           if (m.partial[n]) this.warn(n, 'movimento incompleto!');
+          if (m.together?.[n]) this.warn(n, 'alterne os braços!');
           for (let k = 0; k < m.strokes[n]; k++) {
             if (this.t - P.lastStep < M.STEP_GAP) continue;
             P.lastStep = this.t; P.steps++; P.target = Math.min(1, P.steps / M.STEPS); P.walk = 0.35;
@@ -218,7 +233,7 @@ export function install(api) {
           } else { if (T.step === 2) for (const n of ids) this.P[n].cal.ok = true; next(); }
         }
       } else if (T.step === 3) {                // 4 passos completos
-        for (const n of ids) { this.P[n].tc.strokes += m.strokes[n]; if (m.strokes[n]) this.P[n].walk = 0.35; if (m.partial[n]) this.warn(n, 'movimento incompleto!'); }
+        for (const n of ids) { this.P[n].tc.strokes += m.strokes[n]; if (m.strokes[n]) this.P[n].walk = 0.35; if (m.partial[n]) this.warn(n, 'movimento incompleto!'); if (m.together?.[n]) this.warn(n, 'alterne os braços!'); if (m.noPair?.[n]) this.warn(n, 'mostre as DUAS mãos'); }
         T.hold = Math.min(...ids.map((n) => this.P[n].tc.strokes));
         if (T.hold >= 4) { next(); this.turnK = 0; this.resetRefs(now, M.GRACE); T.maxDrift = 0; T.t = 0; tone(220, 0.25, 'sawtooth', 0.06, 0, 520); }
       } else if (T.step === 4) {                // robô virou: mãos no alto e imóvel
@@ -392,7 +407,7 @@ export function install(api) {
       if (this.phase === 'tut') {
         const T = this.tut, two = ids.length > 1;
         const steps = [two ? 'Cada jogador: mostre as DUAS mãos' : 'Mostre as DUAS mãos para a câmera', 'Levante as DUAS mãos bem ALTO e segure', 'Agora abaixe as mãos até a CINTURA e segure',
-          'Corra: suba e desça os braços POR INTEIRO', 'O robô virou! MÃOS PARA CIMA e fique PARADO'];
+          'Corra: braços ALTERNADOS, um sobe e o outro desce', 'O robô virou! MÃOS PARA CIMA e fique PARADO'];
         const st = Math.min(T.step, 4), goal = [0.8, 1, 1, 4, 1.6][st];
         label(ctx, `TUTORIAL ${st + 1}/5`, W / 2, H * 0.12, MIN * 0.034, '#93c5fd');
         label(ctx, steps[st], W / 2, H * 0.165, fit(steps[st], MIN * 0.05), T.flash > 0 ? '#4ade80' : '#fde047');
@@ -404,7 +419,7 @@ export function install(api) {
         const lit = n < 0 ? 0 : n < 4 ? 1 : n < 6 ? 2 : 3;
         const total = words.map((w) => w.length).reduce((a, b) => a + b, 0), cw = size * 0.62; let x = W / 2 - (total * cw + size) / 2;
         words.forEach((w, i) => { const wx = x + (w.length * cw) / 2; label(ctx, w, wx, H * 0.15, size, i < lit ? '#fde047' : 'rgba(255,255,255,.45)'); x += w.length * cw + size * 0.5; });
-        const sub = 'SUBA E DESÇA OS BRAÇOS POR INTEIRO PARA ANDAR';
+        const sub = 'CORRA COM OS BRAÇOS ALTERNADOS, POR INTEIRO';
         label(ctx, sub, W / 2, H * 0.215, fit(sub, MIN * 0.038), '#bbf7d0');
       } else {
         const blink = Math.floor(t * 4) % 2 === 0;
