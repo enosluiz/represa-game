@@ -3,7 +3,7 @@
 Jogos que você joga com as mãos, sem tocar na tela, usando a câmera do celular
 (MediaPipe Tasks Vision `HandLandmarker`, rodando 100% no aparelho). Inclui o jogo da Represa (10 cenários) e minijogos.
 
-**Jogar:** https://www.levantaebrinca.com.br (ou https://enosluiz.github.io/represa-game/)
+**Jogar:** https://www.levantaebrinca.com.br
 
 ## Domínio próprio (GitHub Pages)
 O arquivo `CNAME` contém `www.levantaebrinca.com.br`. No provedor do domínio, crie:

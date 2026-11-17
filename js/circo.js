@@ -5,6 +5,7 @@
 //   • Goleiro: bolas chutadas contra a tela com curva; defenda com as mãos no ponto de chegada.
 // Cada jogo: { start(), update(dt, now), render(ctx, t, now) }.
 // =============================================================================
+import { texture, vignette, spotlight, sphere, groundShadow, sky, crowd } from './art.js';
 export function install(api) {
   const { sfx, tone, noise, banner, show, hide, setText, PLAYER_COLORS, rand, randInt, clamp, lerp, pick, fmtTime, emit } = api;
   const $ = (id) => document.getElementById(id);
@@ -47,31 +48,38 @@ export function install(api) {
       this.addTimer -= dt; if (this.addTimer <= 0 && this.plates.length < 5) { this.addPlate(); this.addTimer = 14; banner('+1 PRATO!'); sfx.spawn('x'); }
       const decay = 0.07 + this.t * 0.0025 + this.plates.length * 0.01; // giro perdido por segundo
       const topY = H * 0.42;
-      for (const p of this.plates) {
+      for (let pi = 0; pi < this.plates.length; pi++) { const p = this.plates[pi];
         p.x = lerp(p.x, p.tx, 1 - Math.pow(0.01, dt)); p.phase += dt * (2 + p.spin * 10);
-        if (!p.alive) { p.fallT += dt; continue; }
+        if (!p.alive) { p.fallT += dt; if (this.t >= p.reviveAt) { p.alive = true; p.spin = 0.9; } continue; }
         p.spin -= decay * dt;
-        // Movimento circular da mão perto do prato: velocidade angular em torno do centro do prato
+        // Movimento circular da mão perto do prato: velocidade angular em torno do centro (só em amostras novas)
         for (const c of api.cursors) {
-          const dx = api.cx(c) - p.x, dy = c.y - topY, d = Math.hypot(dx, dy);
-          if (d > MIN * 0.26) continue;
-          const ang = Math.atan2(dy, dx), key = `${p.tx}|${c.id}`, prev = this.angleMem.get(key);
-          if (prev !== undefined) { let da = ang - prev; while (da > Math.PI) da -= 2 * Math.PI; while (da < -Math.PI) da += 2 * Math.PI; const w = Math.abs(da) / dt; if (w > 1.5) { p.spin += Math.min(w, 14) * 0.02 * dt * 6; p.boost = 0.3; } }
-          this.angleMem.set(key, ang);
+          const dx = api.cx(c) - p.x, dy = c.y - topY, d = Math.hypot(dx, dy), key = `${pi}|${c.id}`;
+          if (d > MIN * 0.26 || d < MIN * 0.06) { this.angleMem.delete(key); continue; } // perto demais do centro = ruído angular
+          if (c.lastSeen !== now) continue;
+          const ang = Math.atan2(dy, dx), prev = this.angleMem.get(key);
+          if (prev) { let da = ang - prev.ang; while (da > Math.PI) da -= 2 * Math.PI; while (da < -Math.PI) da += 2 * Math.PI;
+            const span = Math.max(0.016, (now - prev.t) / 1000), w = Math.abs(da) / span;
+            if (w > 1.5) { p.spin += Math.min(w, 14) * 0.12 * span; p.boost = 0.3; } }
+          this.angleMem.set(key, { ang, t: now });
         }
         p.spin = clamp(p.spin, -0.2, 1.25); p.boost = Math.max(0, (p.boost || 0) - dt);
         p.wob = p.spin < 0.3 ? (0.3 - p.spin) / 0.3 : 0;
         this.score += (0.6 + p.spin) * dt * 4;
-        if (p.spin <= 0) { p.alive = false; p.fallT = 0; this.lives--; this.broken++; sfx.boom(); api.state.shake = 0.8; banner('💥 QUEBROU!'); setText('hudLevel', '❤'.repeat(Math.max(0, this.lives)) || '💀'); if (this.lives <= 0) return this.finish(false); setTimeout(() => { if (this.plates.includes(p)) { p.alive = true; p.spin = 0.9; } }, 2500); }
+        if (p.spin <= 0) { p.alive = false; p.fallT = 0; this.lives--; this.broken++; sfx.boom(); api.state.shake = 0.8; banner('💥 QUEBROU!'); setText('hudLevel', '❤'.repeat(Math.max(0, this.lives)) || '💀'); if (this.lives <= 0) return this.finish(false); p.reviveAt = this.t + 2.5; }
       }
+      for (const k of this.angleMem.keys()) if (!api.cursors.some((c) => k.endsWith('|' + c.id))) this.angleMem.delete(k);
       for (let i = this.shards.length - 1; i >= 0; i--) { const s = this.shards[i]; s.vy += MIN * 2 * dt; s.x += s.vx * dt; s.y += s.vy * dt; s.life -= dt; if (s.life <= 0) this.shards.splice(i, 1); }
       setText('hudScore', Math.floor(this.score).toLocaleString('pt-BR')); setText('hudTime', fmtTime(this.DURATION - this.t));
     },
     render(ctx, t) {
-      const W = api.W, H = api.H, MIN = api.MIN; bg(ctx, '#7c2d12', '#1c0a04');
-      // Palco de circo: cortinas listradas
-      for (let x = 0; x < W; x += MIN * 0.12) { ctx.fillStyle = Math.floor(x / (MIN * 0.12)) % 2 ? 'rgba(220,38,38,.25)' : 'rgba(255,255,255,.05)'; ctx.fillRect(x, 0, MIN * 0.12, H * 0.2); }
-      ctx.fillStyle = '#3f2a1a'; ctx.fillRect(0, H * 0.86, W, H);
+      const W = api.W, H = api.H, MIN = api.MIN;
+      ctx.fillStyle = texture(ctx, 'velvet', 256, 12); ctx.fillRect(0, 0, W, H);
+      // Cortinas com dobras (listras com sombra) e lambrequim
+      for (let x = 0; x < W; x += MIN * 0.1) { const g = ctx.createLinearGradient(x, 0, x + MIN * 0.1, 0); g.addColorStop(0, 'rgba(0,0,0,.45)'); g.addColorStop(0.5, 'rgba(255,255,255,.07)'); g.addColorStop(1, 'rgba(0,0,0,.45)'); ctx.fillStyle = g; ctx.fillRect(x, 0, MIN * 0.1, H); }
+      ctx.fillStyle = '#facc15'; for (let x = 0; x < W; x += MIN * 0.08) { ctx.beginPath(); ctx.moveTo(x, H * 0.12); ctx.lineTo(x + MIN * 0.04, H * 0.17); ctx.lineTo(x + MIN * 0.08, H * 0.12); ctx.fill(); } ctx.fillRect(0, H * 0.1, W, H * 0.025);
+      ctx.fillStyle = texture(ctx, 'wood', 256, 9); ctx.fillRect(0, H * 0.86, W, H); ctx.fillStyle = 'rgba(0,0,0,.25)'; ctx.fillRect(0, H * 0.86, W, H);
+      spotlight(ctx, W * 0.5, H * 0.1, H * 1.1, 'rgba(255,240,200,.28)'); vignette(ctx, W, H, 0.5);
       const topY = H * 0.42;
       for (const p of this.plates) {
         // Vara
@@ -143,14 +151,16 @@ export function install(api) {
       const W = api.W, H = api.H, MIN = api.MIN; bg(ctx, '#312e81', '#0f0a2e');
       // Holofotes
       for (const sx of [0.25, 0.75]) { const gr = ctx.createRadialGradient(W * sx, 0, 0, W * sx, 0, H * 0.9); gr.addColorStop(0, 'rgba(253,224,71,.18)'); gr.addColorStop(1, 'rgba(0,0,0,0)'); ctx.fillStyle = gr; ctx.beginPath(); ctx.moveTo(W * sx, 0); ctx.lineTo(W * sx - W * 0.25, H); ctx.lineTo(W * sx + W * 0.25, H); ctx.closePath(); ctx.fill(); }
-      ctx.fillStyle = 'rgba(255,255,255,.08)'; ctx.fillRect(0, H * 0.92, W, H);
+      ctx.fillStyle = texture(ctx, 'wood', 256, 9); ctx.globalAlpha = 0.9; ctx.fillRect(0, H * 0.92, W, H); ctx.globalAlpha = 1;
+      // Névoa volumétrica
+      for (const sx of [0.25, 0.75]) spotlight(ctx, W * sx, H * 0.1, H * 0.7, 'rgba(255,255,255,.07)');
+      vignette(ctx, W, H, 0.45);
       for (const b of this.balls) {
         // Sombra no chão
         const sh = clamp(1 - (H * 0.92 - b.y) / H, 0.2, 1); ctx.fillStyle = `rgba(0,0,0,${0.35 * sh})`; ctx.beginPath(); ctx.ellipse(b.x, H * 0.92, b.r * sh, b.r * 0.35 * sh, 0, 0, Math.PI * 2); ctx.fill();
         // Rastro
         ctx.strokeStyle = b.color + '55'; ctx.lineWidth = b.r; ctx.lineCap = 'round'; ctx.beginPath(); ctx.moveTo(b.x - b.vx * 0.04, b.y - b.vy * 0.04); ctx.lineTo(b.x, b.y); ctx.stroke();
-        const gr = ctx.createRadialGradient(b.x - b.r * 0.3, b.y - b.r * 0.3, b.r * 0.1, b.x, b.y, b.r); gr.addColorStop(0, '#fff'); gr.addColorStop(0.3, b.color); gr.addColorStop(1, '#111');
-        ctx.fillStyle = gr; ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2); ctx.fill();
+        sphere(ctx, b.x, b.y, b.r, b.color);
         ctx.strokeStyle = 'rgba(255,255,255,.5)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(b.x, b.y, b.r * 0.6, b.spin, b.spin + 2); ctx.stroke();
       }
       for (const f of this.fx) { ctx.globalAlpha = clamp(f.life, 0, 1); label(ctx, f.text, f.x, f.y, MIN * 0.045, f.color); } ctx.globalAlpha = 1;
@@ -166,7 +176,7 @@ export function install(api) {
   const goleiro = {
     name: 'Goleiro', MAX_GOALS: 3,
     start() {
-      this.t = 0; this.score = 0; this.p = { 1: 0, 2: 0 }; this.saves = 0; this.goals = 0; this.shot = null; this.wait = 1.5; this.shotN = 0; this.flash = 0; this.net = 0;
+      this.t = 0; this.score = 0; this.p = { 1: 0, 2: 0 }; this.saves = 0; this.goals = 0; this.shot = null; this.wait = 1.5; this.shotN = 0; this.flash = 0; this.net = 0; this.endAt = null;
       show('hud'); setText('hudScore', '0'); setText('hudLevelLabel', 'GOLS SOFRIDOS'); setText('hudLevel', '0/3'); setText('hudTime', 'DEFESAS 0'); hide('hudCombo'); hide('hudP');
       banner('Defenda com as mãos!');
     },
@@ -181,21 +191,33 @@ export function install(api) {
     },
     update(dt, now) {
       const W = api.W, H = api.H, MIN = api.MIN; this.t += dt; this.flash = Math.max(0, this.flash - dt * 3); this.net = Math.max(0, this.net - dt * 2);
+      if (this.endAt != null && this.t >= this.endAt) return this.finish();
       if (!this.shot) { this.wait -= dt; if (this.wait <= 0) this.newShot(); return; }
       const s = this.shot; s.t += dt;
       if (s.feint && !s.feintDone && s.t > s.dur * 0.5) { s.feintDone = true; s.tx = clamp(s.tx + (s.tx < W / 2 ? 1 : -1) * MIN * 0.45, this.goal().x1 + MIN * 0.1, this.goal().x2 - MIN * 0.1); banner('FINTA!'); }
+      const LAG = api.settings.tvMode ? 0.18 : 0.08; // janela extra após a chegada (latência câmera/TV)
       if (s.t >= s.dur && !s.result) {
         const reach = api.contactRadius() + MIN * 0.11, c = api.cursors.find((c) => Math.hypot(api.cx(c) - s.tx, c.y - s.ty) <= reach);
-        if (c) { s.result = 'save'; this.saves++; const pts = 100 + Math.floor(this.shotN * 15) + (s.feint ? 50 : 0); this.score += pts; this.p[c.player] += pts; banner(pick(['DEFESAÇA!', 'QUE DEFESA!', 'MURALHA!'])); sfx.level(); emit(s.tx, s.ty, 25, 'dust'); api.state.shake = 0.6; }
+        if (!c && s.t < s.dur + LAG) { /* ainda dentro da janela: espera */ }
+        else if (c) { s.result = 'save'; this.saves++; const pts = 100 + Math.floor(this.shotN * 15) + (s.feint ? 50 : 0); this.score += pts; this.p[c.player] += pts; banner(pick(['DEFESAÇA!', 'QUE DEFESA!', 'MURALHA!'])); sfx.level(); emit(s.tx, s.ty, 25, 'dust'); api.state.shake = 0.6; }
         else { s.result = 'goal'; this.goals++; banner('GOOOL... 😬'); sfx.over(); this.net = 1; api.state.shake = 1; setText('hudLevel', `${this.goals}/${this.MAX_GOALS}`); }
-        setText('hudScore', this.score.toLocaleString('pt-BR')); setText('hudTime', `DEFESAS ${this.saves}`); hudPlayers(now, this.p);
-        if (this.goals >= this.MAX_GOALS) { setTimeout(() => this.finish(), 1200); this.shot.done = true; }
+        if (s.result) { setText('hudScore', this.score.toLocaleString('pt-BR')); setText('hudTime', `DEFESAS ${this.saves}`); hudPlayers(now, this.p); }
+        if (this.goals >= this.MAX_GOALS) { this.endAt = this.t + 1.2; this.shot.done = true; }
       }
       if (s.result && s.t > s.dur + 1.0 && !s.done) { this.shot = null; this.wait = rand(0.8, 1.6); }
     },
     render(ctx, t) {
-      const W = api.W, H = api.H, MIN = api.MIN, g = this.goal(); bg(ctx, '#0ea5e9', '#bae6fd');
-      ctx.fillStyle = '#16a34a'; ctx.fillRect(0, H * 0.55, W, H); for (let i = 0; i < 6; i++) { ctx.fillStyle = i % 2 ? 'rgba(0,0,0,.06)' : 'rgba(255,255,255,.05)'; ctx.fillRect(0, H * (0.55 + i * 0.075), W, H * 0.075); }
+      const W = api.W, H = api.H, MIN = api.MIN, g = this.goal();
+      sky(ctx, W, H, { top: '#0c1a4a', bottom: '#1e3a8a', sun: false, cloudAlpha: 0.08 }); // noite de jogo
+      // Arquibancada com torcida e refletores
+      ctx.fillStyle = '#1f2937'; ctx.fillRect(0, H * 0.1, W, H * 0.22); crowd(ctx, W, H * 0.11, H * 0.31, 5);
+      for (const sx of [0.08, 0.92]) { ctx.fillStyle = '#9ca3af'; ctx.fillRect(W * sx - 3, 0, 6, H * 0.2); ctx.fillStyle = '#e5e7eb'; ctx.fillRect(W * sx - MIN * 0.05, 0, MIN * 0.1, MIN * 0.03); spotlight(ctx, W * sx, MIN * 0.02, H * 0.9, 'rgba(255,255,255,.14)'); }
+      ctx.fillStyle = 'rgba(255,255,255,.25)'; ctx.fillRect(0, H * 0.31, W, H * 0.015); // mureta
+      // Gramado texturizado com faixas de corte
+      ctx.fillStyle = texture(ctx, 'grass', 256, 6); ctx.fillRect(0, H * 0.32, W, H);
+      for (let i = 0; i < 8; i++) { ctx.fillStyle = i % 2 ? 'rgba(0,0,0,.08)' : 'rgba(255,255,255,.06)'; ctx.fillRect(0, H * (0.32 + i * 0.085), W, H * 0.085); }
+      ctx.strokeStyle = 'rgba(255,255,255,.7)'; ctx.lineWidth = 3; ctx.strokeRect(W * 0.02, H * 0.9, W * 0.96, H * 0.3); // linha da pequena área
+      vignette(ctx, W, H, 0.4);
       // Rede e traves
       ctx.strokeStyle = this.net > 0 ? `rgba(255,255,255,${0.6 + 0.4 * Math.sin(t * 30)})` : 'rgba(255,255,255,.35)'; ctx.lineWidth = 1.5;
       for (let x = g.x1; x <= g.x2; x += MIN * 0.04) { ctx.beginPath(); ctx.moveTo(x, g.y1); ctx.lineTo(x, g.y2); ctx.stroke(); }
@@ -211,8 +233,8 @@ export function install(api) {
         if (s.result === 'goal') { label(ctx, '⚽', s.tx, s.ty, MIN * 0.2); }
         else if (s.result === 'save') { label(ctx, '🧤', s.tx, s.ty, MIN * 0.2); }
         else {
-          ctx.fillStyle = 'rgba(0,0,0,.25)'; ctx.beginPath(); ctx.ellipse(x, y + r * 1.2, r, r * 0.4, 0, 0, Math.PI * 2); ctx.fill();
-          ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+          groundShadow(ctx, x, y + r * 1.2, r * 1.2, r * 0.45, 0.35);
+          sphere(ctx, x, y, r, '#f8fafc');
           ctx.fillStyle = '#111'; for (let i = 0; i < 5; i++) { const a = t * 6 + i * 1.26; ctx.beginPath(); ctx.arc(x + Math.cos(a) * r * 0.55, y + Math.sin(a) * r * 0.55, r * 0.2, 0, Math.PI * 2); ctx.fill(); }
           ctx.strokeStyle = '#111'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.stroke();
         }

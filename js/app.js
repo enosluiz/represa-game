@@ -7,6 +7,8 @@
 //   11 Áudio  12 Plataforma/PWA  13 Eventos  14 Loop
 // =============================================================================
 
+import { texture, vignette, spotlight, sphere, groundShadow, sky, crowd, clearArtCache } from './art.js';
+
 // Assets do MediaPipe: cópia local (funciona offline) com fallback para CDN
 const MP_VERSION   = '0.10.14';
 const LOCAL_MP     = new URL('../vendor/mediapipe/', import.meta.url).href;
@@ -190,27 +192,39 @@ function activePlayers(now = performance.now()) {
   return now - state.p2SeenAt < 4000 ? 2 : 1;
 }
 
+let ghosts = [];                                   // cursores recém-perdidos (até HAND_LOST_MS)
+// Raio de pareamento: largo quando só há uma mão (sem ambiguidade), estreito com várias (evita troca cruzada)
+const MATCH_R = (nPts) => (nPts <= 1 && cursors.length <= 1 ? MIN * 0.7 : MIN * 0.22);
+
 function updateCursors(res, now) {
   state.lastLandmarks = res.landmarks || [];
   if (state.lastLandmarks.length) stats.handsEver++;
   const pts = state.lastLandmarks.map((lm) => { const p = toScreen(contactPoint(lm)); return { x: clamp(p.x, 0, W), y: clamp(p.y, 0, H), raw: toScreen(lm[0]), lm }; });
-  const used = new Set();
-  for (const p of pts) {
-    let bestC = null, bd = Infinity;
-    for (const c of cursors) { if (used.has(c)) continue; const d = Math.hypot(c.x - p.x, c.y - p.y); if (d < bd) { bd = d; bestC = c; } }
-    if (bestC && bd < MIN * 0.35) {
-      const a = clamp(CONFIG.SMOOTH_MIN + bd / (MIN * CONFIG.SMOOTH_SPEED_REF), CONFIG.SMOOTH_MIN, 1);
-      bestC.x += (p.x - bestC.x) * a; bestC.y += (p.y - bestC.y) * a; bestC.lastSeen = now; used.add(bestC);
-      updateGesture(bestC, p.lm, now);
-    } else {
-      // Jogador definido pelo lado em que a mão ENTRA na cena (fica fixo enquanto a mão for rastreada)
-      const player = settings.players === '1' ? 1 : (p.raw.x < W / 2 ? 1 : 2);
-      const c = { id: nextCursorId++, x: p.x, y: p.y, lastSeen: now, player, wind: 0, gesture: 'none', fingers: 0, gestureSince: now };
-      updateGesture(c, p.lm, now); cursors.push(c); used.add(c);
-    }
-    if (p.raw.x >= W / 2) state.p2SeenAt = now;
+  // 1) Pareamento global por distância (sem troca cruzada entre mãos próximas)
+  const pairs = [];
+  pts.forEach((p, i) => cursors.forEach((c) => pairs.push({ i, c, d: Math.hypot(c.x - p.x, c.y - p.y) })));
+  pairs.sort((a, b) => a.d - b.d);
+  const usedP = new Set(), usedC = new Set();
+  for (const { i, c, d } of pairs) {
+    if (d > MATCH_R(pts.length) || usedP.has(i) || usedC.has(c)) continue;
+    usedP.add(i); usedC.add(c);
+    const p = pts[i], a = clamp(CONFIG.SMOOTH_MIN + d / (MIN * CONFIG.SMOOTH_SPEED_REF), CONFIG.SMOOTH_MIN, 1);
+    c.x += (p.x - c.x) * a; c.y += (p.y - c.y) * a; c.lastSeen = now; updateGesture(c, p.lm, now);
   }
+  // 2) Pontos órfãos: herdam id/jogador de um "fantasma" próximo (mão que piscou); senão, lado de entrada
+  pts.forEach((p, i) => {
+    if (usedP.has(i)) return;
+    const gi = ghosts.findIndex((g) => Math.hypot(g.x - p.x, g.y - p.y) < MIN * 0.3);
+    const ghost = gi >= 0 ? ghosts.splice(gi, 1)[0] : null;
+    const player = settings.players === '1' ? 1 : ghost ? ghost.player : (p.raw.x < W / 2 ? 1 : 2);
+    const c = ghost ? Object.assign(ghost, { x: p.x, y: p.y, lastSeen: now })
+                    : { id: nextCursorId++, x: p.x, y: p.y, lastSeen: now, player, wind: 0, gesture: 'none', fingers: 0, gestureSince: now };
+    updateGesture(c, p.lm, now); cursors.push(c);
+  });
+  // 3) Dois jogadores só com DUAS mãos simultâneas em lados opostos
+  if (pts.some((p) => p.raw.x < W / 2) && pts.some((p) => p.raw.x >= W / 2)) state.p2SeenAt = now;
 }
+
 /**
  * Classificador de gestos por geometria: dedo "estendido" quando a ponta está mais longe
  * do punho que a articulação do meio. Resultados: 'fist' (0–1 dedos), 'scissors'
@@ -218,10 +232,12 @@ function updateCursors(res, now) {
  */
 function classifyGesture(lm) {
   const d = (a, b) => Math.hypot(lm[a].x - lm[b].x, lm[a].y - lm[b].y);
-  const ext = [[8, 6], [12, 10], [16, 14], [20, 18]].map(([tip, pip]) => d(tip, 0) > d(pip, 0) * 1.15);
+  const ratio = [[8, 6], [12, 10], [16, 14], [20, 18]].map(([tip, pip]) => d(tip, 0) / (d(pip, 0) || 1e-6));
+  const ext = ratio.map((r) => r > 1.15);
   const thumb = d(4, 17) > d(3, 17) * 1.1;
   const n = ext.filter(Boolean).length + (thumb ? 1 : 0);
-  if (ext[0] && ext[1] && !ext[2] && !ext[3]) return { g: 'scissors', n };
+  const frontMin = Math.min(ratio[0], ratio[1]), backMax = Math.max(ratio[2], ratio[3]);
+  if (frontMin > 1.15 && backMax < frontMin - 0.2) return { g: 'scissors', n }; // tolera anelar meio solto
   if (n <= 1) return { g: 'fist', n };
   if (n >= 4) return { g: 'open', n };
   return { g: 'other', n };
@@ -235,7 +251,12 @@ function updateGesture(c, lm, now) {
   else { c.pendingG = g; c.pendingN = 1; }
 }
 
-function pruneCursors(now) { cursors = cursors.filter((c) => now - c.lastSeen < CONFIG.CURSOR_TTL_MS); if (cursors.length) state.lastHandAt = now; }
+function pruneCursors(now) {
+  const alive = [], dead = [];
+  for (const c of cursors) (now - c.lastSeen < CONFIG.CURSOR_TTL_MS ? alive : dead).push(c);
+  cursors = alive; ghosts = ghosts.concat(dead).filter((g) => now - g.lastSeen < CONFIG.HAND_LOST_MS);
+  if (cursors.length) state.lastHandAt = now;
+}
 /** Posição efetiva do cursor (com vento, nos cenários que têm). */
 const cx = (c) => c.x + c.wind;
 
@@ -424,7 +445,7 @@ function updateGame(dt, now) {
     if (h.type === 'crack' && !h.spread && h.age > 5) { h.spread = true; spawnHole('normal', h); game.floaters.push({ x: h.nx * W, y: h.ny * H - h.rn * MIN * 1.6, text: 'RACHOU!', life: 1, color: '#fb923c' }); }
 
     const cov = coveringCursors(h);
-    if (h.type === 'decoy') { if (cov.length) hitDecoy(i, cov[0].player); continue; }
+    if (h.type === 'decoy') { if (cov.length) { h.patch += dt * 1000; if (h.patch >= 180) hitDecoy(i, cov[0].player); } else h.patch = 0; continue; }
     if (h.type === 'boss') {
       if (cov.length) { h.patch += dt * 1000; if (h.patch >= CONFIG.HOLD_MS * 1.5) { h.patch = 0; h.hp -= 0.045 + 0.02 * cov.length; emit(h.nx * W, h.ny * H, 25, 'dust'); state.shake = 0.6; sfx.patch(3); game.score += 150; game.p[cov[0].player] += 150; game.floaters.push({ x: h.nx * W, y: h.ny * H, text: '+150', life: 1, color: PLAYER_COLORS[cov[0].player] }); } }
       else h.patch = Math.max(0, h.patch - dt * 1000 * 2);
@@ -486,6 +507,10 @@ function buildBg(sc) {
   const top = H * 0.15;
   const g = x.createLinearGradient(0, top, 0, H); g.addColorStop(0, col.wall[0]); g.addColorStop(1, col.wall[1]);
   x.fillStyle = g; x.fillRect(0, top, W, H - top);
+  // Textura de concreto (ruído fractal) multiplicada sobre a cor do cenário + luz rasante do alto
+  x.save(); x.globalCompositeOperation = 'multiply'; x.globalAlpha = 0.75; x.fillStyle = texture(x, 'concrete', 256, 11); x.fillRect(0, top, W, H - top); x.restore();
+  x.save(); x.globalCompositeOperation = 'overlay'; x.globalAlpha = 0.5; x.fillStyle = texture(x, 'concrete', 128, 23); x.fillRect(0, top, W, H - top); x.restore();
+  spotlight(x, W * 0.5, top, Math.max(W, H) * 0.9, 'rgba(255,245,220,.22)');
   // Borda superior (coroamento) com guarda-corpo
   x.fillStyle = 'rgba(255,255,255,.14)'; x.fillRect(0, top, W, MIN * 0.012);
   x.fillStyle = 'rgba(0,0,0,.25)'; x.fillRect(0, top + MIN * 0.012, W, MIN * 0.01);
@@ -496,18 +521,17 @@ function buildBg(sc) {
     x.beginPath(); x.moveTo(0, y); x.lineTo(W, y); x.stroke();
     const off = (row % 2) * bw / 2; for (let bx = -off; bx < W; bx += bw) { x.beginPath(); x.moveTo(bx, y); x.lineTo(bx, y + bh); x.stroke(); }
   }
-  // Escorrimentos antigos
-  for (let i = 0; i < 14; i++) { const sx = rand(0, W), sh = rand(H * 0.1, H * 0.5); const sg = x.createLinearGradient(0, top, 0, top + sh); sg.addColorStop(0, 'rgba(0,0,0,.18)'); sg.addColorStop(1, 'rgba(0,0,0,0)'); x.fillStyle = sg; x.fillRect(sx, top, rand(3, 10), sh); }
-  // Vinheta
-  const v = x.createRadialGradient(W / 2, H / 2, MIN * 0.3, W / 2, H / 2, Math.max(W, H) * 0.75); v.addColorStop(0, 'rgba(0,0,0,0)'); v.addColorStop(1, 'rgba(0,0,0,0.5)');
-  x.fillStyle = v; x.fillRect(0, 0, W, H);
+  // Escorrimentos úmidos (escuros, com brilho na borda) e musgo perto da água
+  for (let i = 0; i < 18; i++) { const sx = rand(0, W), sh = rand(H * 0.1, H * 0.6), sw = rand(3, 12); const sg = x.createLinearGradient(0, top, 0, top + sh); sg.addColorStop(0, 'rgba(10,20,30,.35)'); sg.addColorStop(1, 'rgba(0,0,0,0)'); x.fillStyle = sg; x.fillRect(sx, top, sw, sh); x.fillStyle = 'rgba(255,255,255,.08)'; x.fillRect(sx + sw, top, 1.5, sh * 0.6); }
+  const moss = x.createLinearGradient(0, H * 0.6, 0, H); moss.addColorStop(0, 'rgba(60,110,50,0)'); moss.addColorStop(1, 'rgba(60,110,50,.45)'); x.fillStyle = moss; x.fillRect(0, H * 0.6, W, H * 0.4);
+  vignette(x, W, H, 0.55);
   return c;
 }
 
 let activeMini = null;
 function render(now) {
   const t = now / 1000, sc = scenario();
-  if (activeMini && ['mini', 'countdown', 'over'].includes(state.phase) && !game) {
+  if (activeMini && ['mini', 'countdown', 'over', 'paused'].includes(state.phase) && !game) {
     activeMini.render(gctx, t, now);
     fctx.clearRect(0, 0, W, H); if (settings.debug) drawDebug(); drawCursors(now); return;
   }
@@ -730,16 +754,16 @@ function buildSelect() {
 }
 
 // Hover-to-click
-const hoverProgress = new WeakMap();
 function updateHover(dtMs) {
-  const active = ['menu', 'select', 'paused', 'result', 'over', 'intro'].includes(state.phase);
-  for (const el of document.querySelectorAll('[data-hover]')) {
-    const visible = el.getClientRects().length > 0; let p = hoverProgress.get(el) || 0;
-    if (!active || !visible || el.disabled) p = 0;
+  if (!['menu', 'select', 'paused', 'result', 'over', 'intro'].includes(state.phase)) return;
+  for (const el of document.querySelectorAll('.screen:not(.hidden) [data-hover]')) {
+    let p = hoverProgress.get(el) || 0;
+    if (el.disabled) p = 0;
     else {
       const r = el.getBoundingClientRect();
       const over = cursors.some((c) => cx(c) >= r.left && cx(c) <= r.right && c.y >= r.top && c.y <= r.bottom);
-      p = over ? p + dtMs : Math.max(0, p - dtMs * 2);
+      if (!over) hoverBlocked.delete(el);
+      p = over && !hoverBlocked.has(el) ? p + dtMs : Math.max(0, p - dtMs * 2);
       if (p >= CONFIG.HOVER_CLICK_MS) { p = 0; sfx.click(); el.classList.remove('bump'); void el.offsetWidth; el.classList.add('bump'); el.click(); }
     }
     hoverProgress.set(el, p); el.style.setProperty('--p', (p / CONFIG.HOVER_CLICK_MS).toFixed(3));
@@ -750,7 +774,18 @@ function updateHover(dtMs) {
 // 10. FLUXO DE TELAS
 // =============================================================================
 const SCREENS = ['menu', 'select', 'intro', 'pause', 'result', 'gameover'];
-function showScreen(id) { for (const s of SCREENS) $(s).classList.toggle('hidden', s !== id); $('hud').classList.toggle('hidden', !['countdown', 'playing', 'paused'].includes(state.phase)); }
+const hoverProgress = new WeakMap();
+const hoverBlocked = new WeakSet();
+function showScreen(id) {
+  for (const s of SCREENS) $(s).classList.toggle('hidden', s !== id);
+  $('hud').classList.toggle('hidden', !['countdown', 'playing', 'paused'].includes(state.phase));
+  // Botão que já está sob a mão ao abrir a tela só aceita hover depois que a mão sair dele
+  for (const el of document.querySelectorAll('[data-hover]')) {
+    hoverProgress.set(el, 0); el.style.setProperty('--p', '0');
+    const r = el.getBoundingClientRect();
+    if (r.width && cursors.some((c) => cx(c) >= r.left && cx(c) <= r.right && c.y >= r.top && c.y <= r.bottom)) hoverBlocked.add(el);
+  }
+}
 
 function goMenu() { state.phase = 'menu'; game = null; activeMini = null; $('hudWaterBox').classList.remove('hidden'); particles.length = 0; rain.length = 0; bgCacheKey = ''; updateChips(); showScreen('menu'); }
 function goSelect() { state.phase = 'select'; buildSelect(); showScreen('select'); }
@@ -910,7 +945,7 @@ $('btnSelBack').addEventListener('click', goMenu);
 $('introBtn').addEventListener('click', () => beginCountdown(3));
 $('btnNext').addEventListener('click', nextScenario);
 $('btnResMenu').addEventListener('click', goMenu);
-$('btnAgain').addEventListener('click', () => { if (activeMini && !game) { activeMini.start(); return; } if (game.sc === ENDLESS) startEndless(); else startScenario(Math.max(0, game.score - game.p[1] - game.p[2])); });
+$('btnAgain').addEventListener('click', () => { if (activeMini && !game) { miniAPI.startMini(activeMini); return; } if (game.sc === ENDLESS) startEndless(); else startScenario(Math.max(0, game.score - game.p[1] - game.p[2])); });
 $('btnMenu').addEventListener('click', goMenu);
 $('btnQuit').addEventListener('click', goMenu);
 $('btnResume').addEventListener('click', resumeGame);

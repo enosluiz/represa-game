@@ -5,6 +5,7 @@
 //   3. Jokenpô  — pedra, papel e tesoura contra o computador ou entre 2 jogadores.
 // Cada minijogo implementa { start(), update(dt, now), render(ctx, t, now) }.
 // =============================================================================
+import { texture, vignette, spotlight, sphere, groundShadow } from './art.js';
 export function install(api) {
   const { state, sfx, tone, banner, show, hide, setText, PLAYER_COLORS, rand, randInt, clamp, pick, fmtTime, emit } = api;
   const $ = (id) => document.getElementById(id);
@@ -34,8 +35,12 @@ export function install(api) {
       const W = api.W, H = api.H, MIN = api.MIN, side = randInt(0, 3);
       const kind = Math.random() < 0.18 ? 'bee' : pick(['roach', 'ant', 'fly']);
       const speed = MIN * (kind === 'fly' ? 0.28 : kind === 'ant' ? 0.12 : 0.2) * (1 + this.t / 60);
-      const b = { kind, r: MIN * (kind === 'ant' ? 0.03 : 0.04), speed, wob: rand(0, 10), t: 0,
-        x: side === 0 ? -MIN * 0.05 : side === 1 ? W + MIN * 0.05 : rand(0, W), y: side === 2 ? -MIN * 0.05 : side === 3 ? H + MIN * 0.05 : rand(H * 0.2, H) };
+      let b;
+      for (let tries = 0; tries < 8; tries++) {
+        b = { kind, r: MIN * (kind === 'ant' ? 0.03 : 0.04), speed, wob: rand(0, 10), t: 0,
+          x: side === 0 ? -MIN * 0.05 : side === 1 ? W + MIN * 0.05 : rand(0, W), y: side === 2 ? -MIN * 0.05 : side === 3 ? H + MIN * 0.05 : rand(H * 0.2, H) };
+        if (!api.cursors.some((c) => Math.hypot(api.cx(c) - b.x, c.y - b.y) < MIN * 0.25)) break;
+      }
       const a = Math.atan2(H / 2 - b.y, W / 2 - b.x) + rand(-0.6, 0.6); b.vx = Math.cos(a) * speed; b.vy = Math.sin(a) * speed;
       this.bugs.push(b);
     },
@@ -58,6 +63,7 @@ export function install(api) {
           this.bugs.splice(i, 1); if (b.kind !== 'bee') { this.lives--; sfx.spawn('decoy'); banner('ESCAPOU!'); if (this.lives <= 0) return this.finish(false); }
           continue;
         }
+        if (b.t < 0.35) continue; // recém-nascido ainda não colide
         const cov = covering(b.x, b.y, b.r * 1.2);
         if (cov.length) {
           const by = cov[0].player;
@@ -74,14 +80,14 @@ export function install(api) {
     },
     render(ctx, t) {
       const W = api.W, H = api.H, MIN = api.MIN;
-      drawSky(ctx, '#365314', '#1a2e05');
-      // Chão de cozinha: ladrilhos
-      ctx.strokeStyle = 'rgba(255,255,255,.08)'; ctx.lineWidth = 2; const s = MIN * 0.14;
-      for (let x = 0; x < W; x += s) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
-      for (let y = 0; y < H; y += s) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+      // Chão de cozinha: ladrilho texturizado com luz de teto e vinheta
+      ctx.fillStyle = texture(ctx, 'tile', 256, 4); ctx.fillRect(0, 0, W, H);
+      ctx.fillStyle = 'rgba(70,90,40,.35)'; ctx.fillRect(0, 0, W, H);
+      spotlight(ctx, W / 2, H * 0.3, Math.max(W, H) * 0.8, 'rgba(255,250,220,.3)'); vignette(ctx, W, H, 0.6);
       for (const sp of this.splats) { ctx.globalAlpha = clamp(sp.life, 0, 1); ctx.fillStyle = sp.color; for (let i = 0; i < 5; i++) { ctx.beginPath(); ctx.arc(sp.x + Math.cos(i * 1.3) * sp.r * 0.5, sp.y + Math.sin(i * 1.3) * sp.r * 0.5, sp.r * (0.35 + 0.1 * i), 0, Math.PI * 2); ctx.fill(); } label(ctx, sp.text, sp.x, sp.y - sp.r - (1.5 - sp.life) * MIN * 0.08, MIN * 0.05, PLAYER_COLORS[sp.by]); }
       ctx.globalAlpha = 1;
       for (const b of this.bugs) {
+        groundShadow(ctx, b.x + b.r * 0.3, b.y + b.r * 0.5, b.r * 1.3, b.r * 0.7, 0.4);
         const a = Math.atan2(b.vy, b.vx); ctx.save(); ctx.translate(b.x, b.y); ctx.rotate(a);
         const r = b.r, leg = Math.sin(b.t * 30) * r * 0.3;
         ctx.strokeStyle = b.kind === 'bee' ? '#111' : '#1c1917'; ctx.lineWidth = Math.max(2, r * 0.12);
@@ -132,13 +138,16 @@ export function install(api) {
       }
       for (const n of this.notes) {
         if (n.state !== 'fall') continue;
-        const dtHit = this.t - n.hitAt;
+        const LAG = api.settings.tvMode ? 0.15 : 0.05;
+        const dtHit = this.t - n.hitAt - LAG;
         if (dtHit > 0.18) { n.state = 'miss'; this.combo = 0; this.hits.miss++; sfx.spawn('decoy'); this.fx.push({ x: this.laneX(n.lane), y: this.hitY, text: 'ERROU', color: '#ef4444', life: 1 }); continue; }
         if (dtHit < -0.2) continue;
         // Mão na pista com o gesto certo?
         const laneW = api.W * 0.8 / this.LANES;
-        const c = api.cursors.find((c) => Math.abs(api.cx(c) - this.laneX(n.lane)) < laneW * 0.55 && c.gesture === n.g);
+        const c = api.cursors.find((c) => Math.abs(api.cx(c) - this.laneX(n.lane)) < laneW * 0.55 && c.gesture === n.g
+          && (!this.lastLaneHit[c.id] || c.gestureSince > this.lastLaneHit[c.id].t || this.lastLaneHit[c.id].lane !== n.lane));
         if (c) {
+          this.lastLaneHit[c.id] = { t: now, lane: n.lane };
           const perfect = Math.abs(dtHit) < 0.08; const pts = (perfect ? 300 : 150) * (1 + Math.min(this.combo, 20) * 0.1);
           n.state = 'hit'; this.combo++; this.maxCombo = Math.max(this.maxCombo, this.combo); this.hits[perfect ? 'perfect' : 'good']++;
           this.score += Math.round(pts); this.p[c.player] += Math.round(pts);
@@ -156,6 +165,7 @@ export function install(api) {
     render(ctx, t) {
       const W = api.W, H = api.H, MIN = api.MIN, laneW = W * 0.8 / this.LANES;
       drawSky(ctx, '#1e1b4b', '#0f0a2e');
+      for (const sx of [0.2, 0.5, 0.8]) spotlight(ctx, W * sx, 0, H * 0.9, 'rgba(167,139,250,.14)');
       for (let l = 0; l < this.LANES; l++) {
         const x = this.laneX(l) - laneW / 2; ctx.fillStyle = l % 2 ? 'rgba(255,255,255,.04)' : 'rgba(255,255,255,.08)'; ctx.fillRect(x, 0, laneW, H);
         // destaque quando há mão na pista
@@ -167,8 +177,8 @@ export function install(api) {
         const y = this.hitY - (n.hitAt - this.t) / this.fallTime * (this.hitY + MIN * 0.1), x = this.laneX(n.lane), r = laneW * 0.32;
         if (n.state === 'miss') continue;
         ctx.globalAlpha = n.state === 'hit' ? clamp(1 - (this.t - n.hitAt) * 2, 0, 1) : 1;
-        ctx.fillStyle = n.g === 'open' ? '#38bdf8' : '#f472b6'; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
-        ctx.strokeStyle = '#fff'; ctx.lineWidth = r * 0.12; ctx.stroke();
+        sphere(ctx, x, y, r, n.g === 'open' ? '#38bdf8' : '#f472b6');
+        ctx.strokeStyle = 'rgba(255,255,255,.8)'; ctx.lineWidth = r * 0.1; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.stroke();
         label(ctx, GESTURE_ICON[n.g], x, y, r * 1.2);
         ctx.globalAlpha = 1;
       }
@@ -188,7 +198,7 @@ export function install(api) {
   const jokenpo = {
     name: 'Jokenpô', ROUNDS: 5, NAMES: { fist: 'PEDRA', open: 'PAPEL', scissors: 'TESOURA' },
     start() {
-      this.round = 0; this.wins = { 1: 0, 2: 0 }; this.two = api.activePlayers() === 2; this.phase = 'ready'; this.timer = 1.5; this.result = null; this.cpu = null; this.hands = {};
+      this.round = 0; this.wins = { 1: 0, 2: 0 }; this.two = api.settings.players === '2' || api.activePlayers() === 2; this.phase = 'ready'; this.timer = 1.5; this.result = null; this.cpu = null; this.hands = {};
       show('hud'); setText('hudScore', '0'); HUD('RODADA', '1', '—'); hide('hudCombo'); hide('hudP');
     },
     beats(a, b) { return (a === 'fist' && b === 'scissors') || (a === 'scissors' && b === 'open') || (a === 'open' && b === 'fist'); },
