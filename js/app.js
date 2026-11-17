@@ -74,7 +74,7 @@ const state = {
   scenarioIdx: 0,
   p2SeenAt: -1e9,      // última vez que uma mão do lado do jogador 2 foi vista (modo auto)
 };
-const APP_VERSION = '4.5.0';
+const APP_VERSION = '4.6.0';
 const stats = { fps: 0, detFps: 0, inferMs: 0, frames: 0, detFrames: 0, lastTick: 0, delegate: '-', handsEver: 0, maxHands: 0, handSize: 0 };
 
 let game = null;
@@ -1153,6 +1153,7 @@ import('./minigames.js').then((m) => m.install(miniAPI)).catch((e) => console.wa
 import('./libras.js').then((m) => m.install(miniAPI)).catch((e) => console.warn('Libras não carregou', e));
 import('./arcade.js').then((m) => m.install(miniAPI)).catch((e) => console.warn('Arcade não carregou', e));
 import('./circo.js').then((m) => m.install(miniAPI)).catch((e) => console.warn('Circo não carregou', e));
+import('./batatinha.js').then((m) => m.install(miniAPI)).catch((e) => console.warn('Batatinha não carregou', e));
 
 // ---- Feedback + Testar câmera ----
 let fbmod = null;
