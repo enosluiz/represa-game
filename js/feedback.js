@@ -65,7 +65,7 @@ export function install(api) {
       'Instalado como app': api.isStandalone() ? 'sim' : 'não',
       'Online': navigator.onLine ? 'sim' : 'não',
       'Câmera': `${settings.facing === 'user' ? 'frontal' : 'traseira'} · ${v?.videoWidth || 0}×${v?.videoHeight || 0} · espelhar ${settings.mirror ? 'sim' : 'não'} · zoom ${api.zoom ? api.zoom() : 1}× (${settings.zoom})`,
-      'IA': `${stats.delegate} (escolha: ${settings.delegate}) · ${stats.inferMs.toFixed(1)} ms/quadro · ${stats.detFps} detecções/s`,
+      'IA': `${stats.delegate} (escolha: ${settings.delegate}${(() => { try { return localStorage.getItem('represa.gpuBlind') === '1' ? ', GPU reprovada' : ''; } catch { return ''; } })()}) · ${stats.inferMs.toFixed(1)} ms/quadro · ${stats.detFps} detecções/s`,
       'Desempenho': `${stats.fps} fps de tela`,
       'Mãos': `vistas em ${stats.handsEver} quadros · máx. simultâneas ${stats.maxHands || 0} · tamanho da última ${stats.handSize ? Math.round(stats.handSize * 100) + '% da largura' : '—'}`,
       'Luz': `${state.luma != null ? Math.round(state.luma) : '—'} de 255${state.lowLight ? ' (POUCA LUZ)' : ''}`,
@@ -158,7 +158,7 @@ export function install(api) {
     }
     if (ct.noHandFor < 2) return { level: 'warn', text: 'Mostre a palma da mão aberta, de frente para a câmera.' };
     if (state.lowLight) return { level: 'bad', text: 'Pouca luz. Acenda a luz de frente para você (não atrás).' };
-    if (stats.delegate === 'GPU' && ct.noHandFor > 5) return { level: 'bad', text: 'Nenhuma mão em 5 s com a IA na GPU. Toque em "Trocar para CPU" e teste de novo.' };
+    if (stats.delegate === 'GPU' && ct.noHandFor > 5) return { level: 'bad', text: 'Nenhuma mão ainda. O app está testando a IA no processador (CPU) para comparar; se quiser, toque em "Trocar para CPU".' };
     if (state.luma > 200) return { level: 'warn', text: 'Imagem estourada (clara demais). Evite janela ou lâmpada atrás de você.' };
     return { level: 'bad', text: 'Nenhuma mão ainda. Fique a 0,5–1,5 m, palma aberta de frente, com fundo sem muita bagunça.' };
   }

@@ -54,9 +54,12 @@ const settings = loadJSON('represa.settings', {
   facing: 'user', mirror: true, contact: 'palm', camOpacity: 0.3, tvMode: false, debug: false,
   players: 'auto',   // 'auto' | '1' | '2'
   delegate: 'auto',  // 'auto' | 'GPU' | 'CPU' — alguns Android falham em silêncio na GPU
-  zoom: 'auto',      // 'auto' | 1 | 1.6 | 2.3 — zoom de detecção para jogar longe da câmera
+  zoom: 1,           // 1 | 1.6 | 2.3 | 'auto' — zoom de detecção (opcional, para jogar longe da câmera)
 });
 const saveSettings = () => saveJSON('represa.settings', settings);
+// v4.5: a versão 4.4 ligou zoom automático e câmera 1280×720 por padrão e a detecção piorou em
+// alguns aparelhos. Quem tinha o zoom em 'auto' (padrão daquela versão) volta para 1×, uma vez.
+if (!settings.zoomMigrated) { if (settings.zoom === 'auto') settings.zoom = 1; settings.zoomMigrated = true; saveSettings(); }
 
 // Progresso da campanha: estrelas por cenário e recordes
 const progress = loadJSON('represa.progress', { stars: {}, bestCampaign: 0, bestEndless: 0 });
@@ -71,7 +74,7 @@ const state = {
   scenarioIdx: 0,
   p2SeenAt: -1e9,      // última vez que uma mão do lado do jogador 2 foi vista (modo auto)
 };
-const APP_VERSION = '4.4.1';
+const APP_VERSION = '4.5.0';
 const stats = { fps: 0, detFps: 0, inferMs: 0, frames: 0, detFrames: 0, lastTick: 0, delegate: '-', handsEver: 0, maxHands: 0, handSize: 0 };
 
 let game = null;
@@ -114,7 +117,7 @@ async function startCamera() {
   stopCamera();
   if (!navigator.mediaDevices?.getUserMedia) throw new Error('Este navegador não dá acesso à câmera.');
   stream = await navigator.mediaDevices.getUserMedia({ audio: false,
-    video: { facingMode: { ideal: settings.facing }, width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30, max: 30 } } });
+    video: { facingMode: { ideal: settings.facing }, width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 30, max: 30 } } });
   video.srcObject = stream; await video.play();
   const s = stream.getVideoTracks()[0]?.getSettings?.() || {};
   if (s.facingMode === 'user' || s.facingMode === 'environment') settings.facing = s.facingMode;
@@ -145,6 +148,38 @@ async function resolveModelUrl() {
   try { const r = await fetch(LOCAL_MODEL, { method: 'HEAD' }); if (r.ok && !(r.headers.get('content-type') || '').includes('text/html')) return LOCAL_MODEL; } catch { /* */ }
   return REMOTE_MODEL;
 }
+// -----------------------------------------------------------------------------
+// GPU "CEGA": em alguns Android a IA na GPU roda sem erro mas nunca vê mãos.
+// Prova no próprio aparelho: se a GPU passa 4 s sem mão nenhuma, rodamos a IA na CPU
+// sobre a MESMA imagem (a cada 0,7 s). Se a CPU vê mão onde a GPU não viu → troca para
+// CPU e lembra (localStorage). Se a GPU vê mão alguma vez, ela está aprovada nesta sessão.
+// -----------------------------------------------------------------------------
+let visionLib = null;
+const gpuBlind = {
+  get: () => { try { return localStorage.getItem('represa.gpuBlind') === '1'; } catch { return false; } },
+  set: (v) => { try { if (v) localStorage.setItem('represa.gpuBlind', '1'); else localStorage.removeItem('represa.gpuBlind'); } catch { /* */ } },
+};
+const gpuCheck = { emptySince: 0, ok: false, lastProbe: 0, probe: null, creating: false, startedAt: 0, probes: 0 };
+async function gpuSanity(res, input, now) {
+  if (stats.delegate !== 'GPU' || settings.delegate !== 'auto' || gpuCheck.ok || !visionLib) return;
+  if (res.landmarks && res.landmarks.length) { gpuCheck.ok = true; gpuCheck.probe?.close?.(); gpuCheck.probe = null; return; }
+  if (!gpuCheck.emptySince) gpuCheck.emptySince = now;
+  if (now - gpuCheck.emptySince < 4000 || now - gpuCheck.lastProbe < 700 || gpuCheck.probes > 120) return;
+  gpuCheck.lastProbe = now;
+  if (!gpuCheck.probe) {
+    if (gpuCheck.creating) return; gpuCheck.creating = true;
+    try { gpuCheck.probe = await visionLib.HandLandmarker.createFromOptions(visionLib.fileset, { baseOptions: { modelAssetPath: visionLib.modelUrl, delegate: 'CPU' }, runningMode: 'IMAGE', numHands: 1, minHandDetectionConfidence: 0.4, minHandPresenceConfidence: 0.4 }); }
+    catch (e) { console.warn('prova CPU falhou', e); gpuCheck.probes = 999; }
+    gpuCheck.creating = false; return;
+  }
+  gpuCheck.probes++;
+  let cpu = null; try { cpu = gpuCheck.probe.detect(input); } catch (e) { return; }
+  if (cpu && cpu.landmarks && cpu.landmarks.length) {
+    gpuBlind.set(true); gpuCheck.probe.close?.(); gpuCheck.probe = null; gpuCheck.ok = true;
+    toast('A placa de vídeo deste aparelho não enxergava as mãos. Agora a IA roda no processador (CPU).', 5000);
+    await reloadTracker();
+  }
+}
 async function initTracker() {
   const { mp, wasm } = await loadVision();
   const { FilesetResolver, HandLandmarker } = mp;
@@ -152,7 +187,10 @@ async function initTracker() {
   const modelUrl = await resolveModelUrl();
   const opts = (delegate) => ({ baseOptions: { modelAssetPath: modelUrl, delegate }, runningMode: 'VIDEO', numHands: 2,
     minHandDetectionConfidence: 0.4, minHandPresenceConfidence: 0.4, minTrackingConfidence: 0.4 });
-  if (settings.delegate === 'CPU') { tracker = await HandLandmarker.createFromOptions(fileset, opts('CPU')); stats.delegate = 'CPU'; return; }
+  visionLib = { HandLandmarker, fileset, modelUrl };
+  // 'auto' + GPU reprovada antes neste aparelho → CPU direto
+  const useCpu = settings.delegate === 'CPU' || (settings.delegate === 'auto' && gpuBlind.get());
+  if (useCpu) { tracker = await HandLandmarker.createFromOptions(fileset, opts('CPU')); stats.delegate = 'CPU'; return; }
   try { tracker = await HandLandmarker.createFromOptions(fileset, opts('GPU')); stats.delegate = 'GPU'; }
   catch (e) { console.warn('GPU indisponível, usando CPU', e); if (settings.delegate === 'GPU') throw e; tracker = await HandLandmarker.createFromOptions(fileset, opts('CPU')); stats.delegate = 'CPU'; }
 }
@@ -166,6 +204,8 @@ async function reloadTracker() {
 }
 async function switchDelegate() {
   const order = ['auto', 'GPU', 'CPU']; settings.delegate = order[(order.indexOf(settings.delegate) + 1) % 3]; saveSettings(); updateChips();
+  if (settings.delegate === 'GPU') gpuBlind.set(false);
+  Object.assign(gpuCheck, { emptySince: 0, ok: false, probes: 0 });
   await reloadTracker();
 }
 // -----------------------------------------------------------------------------
@@ -201,9 +241,10 @@ function autoZoom(now) {
     const target = zoomState.size < 0.09 ? (ZOOMS.find((z) => z >= want * 0.9) || ZOOMS[ZOOMS.length - 1])
                  : zoomState.size > 0.38 ? ([...ZOOMS].reverse().find((z) => z <= want * 1.1) || 1) : zoomState.z;
     if (target !== zoomState.z) { zoomState.size = null; zoomState.n = 0; setZoom(target, target > zoomState.z ? 'você está longe' : 'você está perto'); }
-  } else if (!hands && now - zoomState.lastHands > 8000) {
-    zoomState.size = null; zoomState.n = 0; setZoom(ZOOMS[(idx + 1) % ZOOMS.length], 'procurando suas mãos'); // ninguém à vista: procura
   }
+  // Sem mão à vista o zoom NÃO muda: trocar às cegas confunde e obriga a IA a recomeçar.
+  // Se ninguém aparece por 20 s num zoom alto, volta ao 1× (o mais amplo) e fica.
+  else if (!hands && idx > 0 && now - zoomState.lastHands > 20000) { zoomState.size = null; zoomState.n = 0; setZoom(1); }
 }
 /** Desenha o vídeo (já recortado pelo zoom) ocupando o mesmo espaço que o mapeamento das mãos. */
 function drawVideo(ctx, alpha) {
@@ -223,7 +264,10 @@ function detectHands(now) {
       if (detCanvas.width !== w || detCanvas.height !== h) { detCanvas.width = w; detCanvas.height = h; }
       detCtx.drawImage(video, r.x, r.y, r.w, r.h, 0, 0, w, h); input = detCanvas;
     }
-    const res = tracker.detectForVideo(input, now); stats.inferMs = performance.now() - t0; stats.detFrames++; return res;
+    const res = tracker.detectForVideo(input, now); stats.inferMs = performance.now() - t0; stats.detFrames++;
+    if (window.__gpuBlindTest && stats.delegate === 'GPU') res.landmarks = []; // só para testes automatizados
+    gpuSanity(res, input, now);
+    return res;
   } catch (e) { console.warn('detectForVideo falhou', e); return null; }
 }
 
@@ -1069,7 +1113,7 @@ $('optCamView').addEventListener('click', () => { const steps = [0, 0.2, 0.3, 0.
 $('optTv').addEventListener('click', () => { settings.tvMode = !settings.tvMode; saveSettings(); updateChips(); });
 $('optDebug').addEventListener('click', () => { settings.debug = !settings.debug; saveSettings(); updateChips(); });
 $('optDelegate').addEventListener('click', switchDelegate);
-$('optZoom').addEventListener('click', () => { const order = ['auto', 1, 1.6, 2.3]; settings.zoom = order[(order.findIndex((v) => String(v) === String(settings.zoom)) + 1) % order.length]; saveSettings(); zoomState.lastChange = 0; if (settings.zoom !== 'auto') setZoom(+settings.zoom); updateChips(); });
+$('optZoom').addEventListener('click', () => { const order = [1, 1.6, 2.3, 'auto']; settings.zoom = order[(order.findIndex((v) => String(v) === String(settings.zoom)) + 1) % order.length]; saveSettings(); zoomState.lastChange = 0; if (settings.zoom !== 'auto') setZoom(+settings.zoom); updateChips(); });
 document.addEventListener('visibilitychange', () => { if (document.hidden) pauseGame(); else if (state.phase !== 'boot') requestWakeLock(); });
 window.addEventListener('resize', resize); window.addEventListener('orientationchange', () => setTimeout(resize, 200));
 

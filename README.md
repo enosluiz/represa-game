@@ -60,7 +60,7 @@ Depois, em Settings → Pages do repositório: Custom domain = `www.levantaebrin
 Gestos: contagem de dedos estendidos a partir dos 21 pontos (punho = 0–1, tesoura = indicador+médio, aberta = 4–5). Funciona com a mão de frente para a câmera.
 
 ## Zoom de detecção (jogar longe da câmera)
-A IA reduz cada imagem a 192×192 px para achar a palma; de longe, a mão some. O app recorta o centro da imagem (1×, 1,6× ou 2,3×) antes da detecção, e o recorte vira o campo de jogo. No modo **Automático** (Ajustes → Distância da câmera), o tamanho da mão visível escolhe o zoom; sem ninguém à vista por 8 s, ele procura. Medido com a IA real e vídeo de mãos reais: a 4× da distância de referência, detecção de 67% (sem zoom) → 100% (zoom 2,3× estabilizado).
+A IA reduz cada imagem a 192×192 px para achar a palma; de longe, a mão some. O app recorta o centro da imagem (1×, 1,6× ou 2,3×) antes da detecção, e o recorte vira o campo de jogo. **Desligado por padrão (1×)** desde a v4.5: ligar em Ajustes → Distância da câmera. No modo Automático, o tamanho da mão visível escolhe o zoom (sem trocas às cegas). Medido com a IA real e vídeo de mãos reais: a 4× da distância de referência, detecção de 67% (sem zoom) → 100% (zoom 2,3× estabilizado).
 
 ## Se a mão não é detectada
 1. Ligue **Debug** no menu: deve aparecer `IA x ms (GPU|CPU)` e `mãos N`. Se `IA` não aparecer, o modelo não carregou (precisa de internet na 1ª vez).
