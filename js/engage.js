@@ -10,6 +10,7 @@
 // =============================================================================
 import { SITE_URL } from './config.js';
 import { brandIcon } from './brands.js';
+import { t } from './i18n.js';
 
 const KEY = 'represa.profile';
 const GAMES = {
@@ -178,9 +179,9 @@ export function install(api) {
   let last = null; // último resultado (para o texto e a imagem)
   function shareText(info) {
     const n = GAMES[info.gameId]?.name || 'Levanta e Brinca';
-    return info.score > 0
+    return t(info.score > 0
       ? `Fiz ${info.score.toLocaleString('pt-BR')} pontos em ${n} no Levanta e Brinca, jogando só com as mãos, sem tocar na tela! Consegue me superar?`
-      : `Conheça o Levanta e Brinca: jogos que você joga só com as mãos, sem tocar na tela!`;
+      : `Conheça o Levanta e Brinca: jogos que você joga só com as mãos, sem tocar na tela!`);
   }
   function renderShare(id, info) {
     last = info; const box = $(id); if (!box) return;

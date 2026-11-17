@@ -17,6 +17,13 @@
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
 <link rel="preload" href="vendor/fonts/fredoka-latin-700-normal.woff2" as="font" type="font/woff2" crossorigin />
 <link rel="stylesheet" href="css/app.css" />
+<style>
+  /* Seletor de idioma (bandeiras em SVG) */
+  .lang-pick { display: inline-flex; gap: 4px; padding: 4px; border-radius: 999px; background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.12); }
+  .lang-btn { position: relative; overflow: hidden; display: inline-flex; align-items: center; gap: .4em; padding: .35em .7em; border-radius: 999px; font-weight: 800; font-size: clamp(12px, 2.2vmin, 22px); color: #cbd5e1; cursor: pointer; transition: background-color .2s, color .2s; }
+  .lang-btn svg { width: 1.7em; height: 1.13em; border-radius: 3px; box-shadow: 0 0 0 1px rgba(255,255,255,.4); flex: none; }
+  .lang-btn.chip-on { background: #0284c7; color: #fff; box-shadow: 0 4px 16px rgba(2,132,199,.5); }
+</style>
 <script src="vendor/motion/motion.js" defer></script>
 
 <!--
@@ -106,6 +113,7 @@
           </div>
         </div>
         <div class="hub-actions">
+          <div id="langPick" class="lang-pick" role="group" aria-label="Idioma"></div>
           <div class="seg" role="group" aria-label="Jogadores">
             <button class="seg-btn" data-players="auto" data-hover aria-label="Detectar jogadores automaticamente"><i data-icon="bot"></i><span>Auto</span></button>
             <button class="seg-btn" data-players="1" data-hover aria-label="1 jogador"><i data-icon="user"></i><span>1</span></button>

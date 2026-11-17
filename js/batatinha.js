@@ -19,6 +19,7 @@
 //     esconder a mão não dá vantagem).
 // =============================================================================
 import { texture, vignette, groundShadow, sky } from './art.js';
+import { t as tr } from './i18n.js';
 
 export function install(api) {
   const { sfx, tone, noise, banner, show, hide, setText, PLAYER_COLORS, rand, clamp, lerp, fmtTime, emit } = api;
@@ -467,7 +468,7 @@ export function install(api) {
       const portrait = H > W * 1.1, pw = Math.min(W * 0.92, MIN * 1.5), ph = portrait ? H * 0.6 : H * 0.66, px = (W - pw) / 2, py = portrait ? H * 0.16 : H * 0.13;
       ctx.fillStyle = card === 0 ? '#0c4a6e' : '#7f1d1d'; ctx.beginPath(); ctx.roundRect(px, py, pw, ph, MIN * 0.04); ctx.fill();
       ctx.strokeStyle = 'rgba(255,255,255,.25)'; ctx.lineWidth = 3; ctx.stroke();
-      const fit = (txt, base) => Math.min(base, pw * 0.9 / (txt.length * 0.56));
+      const fit = (txt, base) => Math.min(base, pw * 0.9 / (tr(txt).length * 0.56));
       label(ctx, `COMO JOGAR ${card + 1}/3`, W / 2, py + ph * 0.08, MIN * 0.035, '#93c5fd');
       const T = [
         ['O robô fica DE COSTAS cantando', 'CORRA no lugar: braços ALTERNADOS,', 'um sobe e o outro desce, POR INTEIRO'],
@@ -507,7 +508,7 @@ export function install(api) {
 
     drawUI(ctx, t, now, ids, red) {
       const W = api.W, H = api.H, MIN = api.MIN;
-      const fit = (txt, base) => Math.min(base, W * 0.92 / (txt.length * 0.56));
+      const fit = (txt, base) => Math.min(base, W * 0.92 / (tr(txt).length * 0.56));
       if (this.phase === 'tut') {
         const T = this.tut, two = ids.length > 1;
         const steps = [two ? 'Cada jogador: mostre as DUAS mãos' : 'Mostre as DUAS mãos para a câmera', 'Levante as DUAS mãos bem ALTO e segure', 'Agora abaixe as mãos até a CINTURA e segure',
@@ -520,7 +521,7 @@ export function install(api) {
         if (T.msgT > 0) label(ctx, T.msg, W / 2, H * 0.25, MIN * 0.04, '#fca5a5');
         this.drawDemo(ctx, t);
       } else if (this.phase === 'green' || this.phase === 'back') {
-        const n = this.phase === 'green' ? this.chantI : -1, size = MIN * 0.06, words = ['BATATINHA', 'FRITA', '1, 2, 3!'];
+        const n = this.phase === 'green' ? this.chantI : -1, size = MIN * 0.06, words = ['BATATINHA', 'FRITA', '1, 2, 3!'].map((w) => tr(w));
         const lit = n < 0 ? 0 : n < 4 ? 1 : n < 6 ? 2 : 3;
         const total = words.map((w) => w.length).reduce((a, b) => a + b, 0), cw = size * 0.62; let x = W / 2 - (total * cw + size) / 2;
         words.forEach((w, i) => { const wx = x + (w.length * cw) / 2; label(ctx, w, wx, H * 0.15, size, i < lit ? '#fde047' : 'rgba(255,255,255,.45)'); x += w.length * cw + size * 0.5; });

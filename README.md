@@ -59,6 +59,12 @@ Depois, em Settings → Pages do repositório: Custom domain = `www.levantaebrin
 
 Gestos: contagem de dedos estendidos a partir dos 21 pontos (punho = 0–1, tesoura = indicador+médio, aberta = 4–5). Funciona com a mão de frente para a câmera.
 
+## Idiomas (PT / EN / ES)
+- Bandeiras (SVG, sem emoji: emoji de bandeira não aparece no Windows nem em várias TVs) no topo da tela de entrada; a escolha fica salva no aparelho. Na 1ª visita, segue o idioma do navegador.
+- `js/i18n.js` traduz **só a exibição**: um MutationObserver traduz textos e atributos (aria-label, title, placeholder) que aparecem ou mudam no DOM, e `fillText`/`strokeText`/`measureText` do canvas passam pelo tradutor, então tudo o que os jogos desenham sai traduzido sem mexer em cada jogo. Regras, testes de conquista e o diagnóstico enviado ao editor continuam em português.
+- `js/i18n-dict.js`: PT → [EN, ES]. Chaves com `{}` são modelos ("Recorde: {}"); o trecho capturado também é traduzido. Para um texto novo, acrescente a frase em português e as duas traduções.
+- Batatinha em inglês é "Red Light, Green Light" e em espanhol "Luz Roja, Luz Verde" (o canto muda junto). Libras aparece como "Sign Language (Libras)" / "Lengua de Señas (Libras)": é a língua de sinais **brasileira**, e as palavras do modo Soletrar continuam em português.
+
 ## Zoom de detecção (jogar longe da câmera)
 A IA reduz cada imagem a 192×192 px para achar a palma; de longe, a mão some. O app recorta o centro da imagem (1×, 1,6× ou 2,3×) antes da detecção, e o recorte vira o campo de jogo. **Desligado por padrão (1×)** desde a v4.5: ligar em Ajustes → Distância da câmera. No modo Automático, o tamanho da mão visível escolhe o zoom (sem trocas às cegas). Medido com a IA real e vídeo de mãos reais: a 4× da distância de referência, detecção de 67% (sem zoom) → 100% (zoom 2,3× estabilizado).
 

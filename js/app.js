@@ -9,6 +9,7 @@
 
 import { texture, vignette, spotlight, sphere, groundShadow, sky, crowd, clearArtCache } from './art.js';
 import { icon, hydrateIcons } from './icons.js';
+import { t, installDom, setLang, lang as langNow, LANGS, FLAGS } from './i18n.js';
 
 // Assets do MediaPipe: cópia local (funciona offline) com fallback para CDN
 const MP_VERSION   = '0.10.14';
@@ -74,7 +75,7 @@ const state = {
   scenarioIdx: 0,
   p2SeenAt: -1e9,      // última vez que uma mão do lado do jogador 2 foi vista (modo auto)
 };
-const APP_VERSION = '4.6.3';
+const APP_VERSION = '4.7.0';
 const stats = { fps: 0, detFps: 0, inferMs: 0, frames: 0, detFrames: 0, lastTick: 0, delegate: '-', handsEver: 0, maxHands: 0, handSize: 0 };
 
 let game = null;
@@ -1082,7 +1083,7 @@ async function activateCamera() {
   if (!window.isSecureContext) {
     // Aberto como http:// — o navegador bloqueia a câmera. Oferece a versão segura do mesmo endereço.
     const secure = location.href.replace(/^http:/, 'https:');
-    $('status').innerHTML = `O site abriu sem cadeado (http) e o navegador bloqueia a câmera. <a class="sec-link" href="${secure}">Abrir versão segura (https)</a>`;
+    $('status').innerHTML = t(`O site abriu sem cadeado (http) e o navegador bloqueia a câmera. <a class="sec-link" href="${secure}">Abrir versão segura (https)</a>`);
     $('status').className = 'status-pill status-err';
     return false;
   }
@@ -1143,6 +1144,7 @@ function loop(now) {
 
 // ---- API usada pelos minijogos (js/minigames.js) ----
 const miniAPI = {
+  t,
   get W() { return W; }, get H() { return H; }, get MIN() { return MIN; }, get cursors() { return cursors; }, cx, toScreen, get actx() { return actx; },
   state, settings, sfx, tone, noise, banner, toast, show, hide, setText, showScreen, PLAYER_COLORS, activePlayers,
   emit, particles, rand, randInt, clamp, lerp, pick, fmtTime, contactRadius, ensureAudio, requestWakeLock, progress, saveProgress,
@@ -1180,7 +1182,7 @@ async function installApp() {
     : /Android/i.test(ua)
       ? ['Abra este site no <b>Chrome</b>.', 'Toque no menu <b>⋮</b> no canto superior direito.', 'Escolha <b>Instalar app</b> ou <b>Adicionar à tela inicial</b>.']
       : ['No <b>Chrome</b> ou <b>Edge</b>, clique no ícone de instalar na barra de endereço (um monitor com seta).', 'Ou abra o menu <b>⋮</b> e escolha <b>Instalar Levanta e Brinca</b>.', 'No celular, abra este mesmo endereço para instalar lá também.'];
-  $('installSteps').innerHTML = steps.map((t) => `<li>${t}</li>`).join('');
+  $('installSteps').innerHTML = steps.map((x) => `<li>${t(x)}</li>`).join('');
   installReturn = { phase: state.phase, screen: currentScreen() };
   state.phase = 'install'; showScreen('installHelp');
 }
@@ -1196,5 +1198,18 @@ $('btnFbOver').addEventListener('click', () => fbmod?.openFeedback());
 
 window.__represa = { get zoom() { return zoomState.z; }, get engage() { return engage; }, get fb() { return fbmod; }, get game() { return game; }, get cursors() { return cursors; }, get state() { return state; }, CONFIG, SCENARIOS, startScenario, startEndless, settings };
 hydrateIcons(); resize(); updateChips(); setupPWA(); requestAnimationFrame(loop);
+
+// ---- Idioma: bandeiras na tela de entrada (PT / EN / ES), escolha salva no aparelho ----
+function renderLangPick() {
+  const box = $('langPick'); if (!box) return;
+  if (!box.childElementCount) {
+    box.innerHTML = LANGS.map((l) => `<button class="lang-btn" type="button" data-lang="${l.id}" data-hover aria-label="${l.label}" title="${l.label}">${FLAGS[l.id]}<span>${l.short}</span></button>`).join('');
+    box.querySelectorAll('[data-lang]').forEach((b) => b.addEventListener('click', () => { setLang(b.dataset.lang); sfx.click(); }));
+  }
+  const cur = document.documentElement.lang.slice(0, 2);
+  box.querySelectorAll('[data-lang]').forEach((b) => { const on = b.dataset.lang === cur; b.classList.toggle('chip-on', on); b.setAttribute('aria-pressed', on); });
+}
+installDom(() => { renderLangPick(); updateChips(); engage?.renderMenu(); });
+renderLangPick();
 if (!window.isSecureContext && !/^(localhost|127\.)/.test(location.hostname)) activateCamera();
 window.addEventListener('load', () => animateIn('menu'));
