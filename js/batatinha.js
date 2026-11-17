@@ -1,19 +1,22 @@
 // =============================================================================
 // BATATINHA FRITA 1, 2, 3 — com o Robô Vigia
 // -----------------------------------------------------------------------------
-// Enquanto o robô está de costas cantando "Batatinha frita 1, 2, 3", o jogador
-// mexe os braços como quem corre e o boneco avança. Quando ele se vira, vale
-// ESTÁTUA: quem se mexer leva um ZAP do laser (cartunesco: congela, perde uma vida
-// e volta um pouco). Chegou na linha, venceu. 1 ou 2 jogadores (lado esquerdo/direito).
-//
-// Medição de movimento (independe da distância da câmera):
-//   • Por mão, o centro de 7 pontos da mão (corrigido pela proporção da câmera) é
-//     suavizado e medido em "palmas" (pulso → base do dedo médio).
-//   • Correr = soma dos deslocamentos (com zona morta para o tremor da detecção).
-//   • Estátua = afastamento da pose em que a mão estava quando o robô terminou de virar
-//     (com 0,45 s de tempo de reação). O limite é calibrado no tutorial pela trepidação
-//     real daquela câmera. Mão que some e volta recomeça a referência (sem punição por
-//     falha da detecção) — esconder a mão não dá vantagem, porque só se anda no verde.
+// Regras:
+//   • Cada jogador joga com as DUAS mãos (2 jogadores = 4 mãos; o detector passa a
+//     procurar 4 mãos só neste jogo). Em 2 jogadores: metade esquerda = J1, direita = J2.
+//   • Robô de costas cantando: o jogador "corre" subindo e descendo os braços. Cada
+//     PASSO só conta se o braço fizer o movimento COMPLETO (da cintura até o alto, ou
+//     o contrário) — a amplitude é medida na calibração do tutorial. Meio movimento
+//     não anda e aparece "movimento incompleto".
+//   • Robô virou: pare com as MÃOS PARA CIMA e fique imóvel. Mão abaixada ou qualquer
+//     movimento depois do tempo de reação = ZAP (cartunesco) e o jogador volta para
+//     a LINHA DE PARTIDA.
+// Justiça da detecção:
+//   • Altura das mãos é comparada com o "alto" e a "cintura" que o próprio jogador
+//     mostrou no tutorial (vale perto ou longe da câmera).
+//   • Imobilidade é medida em "palmas" e o limite é calibrado pela trepidação real.
+//   • Mão que a câmera perde não é punida (só se anda com o robô de costas, então
+//     esconder a mão não dá vantagem).
 // =============================================================================
 import { texture, vignette, groundShadow, sky } from './art.js';
 
@@ -27,151 +30,219 @@ export function install(api) {
 
   const M = {
     PTS: [0, 5, 9, 13, 17, 8, 12],  // pontos da mão usados no centro
-    TAU: 0.09,                       // suavização da posição (s)
-    DEAD: 0.012,                     // zona morta por quadro (palmas) contra tremor
-    RUN_K: 0.02,                     // progresso por palma de movimento
-    RUN_CAP: 0.085,                  // progresso máximo por segundo (≈12 s de verde no máximo)
-    THR_DEFAULT: 0.4,                // limite de estátua (palmas) se não calibrar
-    GRACE: 0.45,                     // tempo de reação depois que o robô vira (s)
+    TAU: 0.07,                       // suavização da posição (s)
+    STEPS: 26,                       // passos completos para cruzar a pista
+    STEP_GAP: 0.16,                  // intervalo mínimo entre passos do mesmo jogador (s)
+    FULL: 0.6,                       // fração da amplitude calibrada que conta como movimento completo
+    HYS: 0.035,                      // histerese para reconhecer a virada do braço (altura da imagem)
+    UP_FRAC: 0.4,                    // "mão no alto" = acima de alto + 40% da amplitude
+    THR_DEFAULT: 0.45,               // limite de imobilidade (palmas) se não calibrar
+    GRACE: 0.9,                      // tempo para levantar as mãos depois que o robô vira (s)
     REACQ_MS: 400,                   // mão sumida por mais que isso: referência recomeça
     LOST_HAND_GRACE: 0.3,
-    BACK: 0.12,                      // quanto volta ao levar ZAP
   };
   const CHANT = ['BA', 'TA', 'TI', 'NHA', 'FRI', 'TA', '1', '2', '3!'];
   const CHANT_HZ = [392, 440, 494, 523, 587, 659, 523, 659, 784];
   const aspect = () => { const v = $('video'); return v && v.videoHeight ? v.videoWidth / v.videoHeight : 4 / 3; };
 
   const game = {
-    name: 'Batatinha 1, 2, 3', DURATION: 90, hideCursors: true,
+    name: 'Batatinha 1, 2, 3', DURATION: 90, hideCursors: true, numHands: 4,
     start() {
-      this.t = 0; this.level = 0; this.vis = { 1: false, 2: false }; this.hands = new Map(); this.thr = M.THR_DEFAULT; this.fx = [];
+      this.t = 0; this.level = 0; this.tracks = []; this.mLast = null; this.thr = M.THR_DEFAULT; this.fx = []; this.seen3 = -1e9; this.c3 = 0; this.lastDet = null;
       this.P = { 1: this.newPlayer(), 2: this.newPlayer() };
       this.phase = 'tut'; this.ph = 0; this.phDur = 0; this.turnK = 0; this.chantI = -1; this.fast = false;
-      this.tut = { step: 0, hold: 0, run: 0, maxDrift: 0, flash: 0 };
-      show('hud'); setText('hudScore', '0%'); setText('hudLevelLabel', 'VIDAS'); setText('hudLevel', '❤❤❤'); setText('hudTime', fmtTime(this.DURATION)); hide('hudCombo'); hide('hudP');
+      this.tut = { step: 0, hold: 0, flash: 0, maxDrift: 0, msg: '', msgT: 0 };
+      this.m = { vis: { 1: 0, 2: 0 }, up: { 1: 0, 2: 0 }, drift: { 1: 0, 2: 0 }, arms: { 1: [], 2: [] } };
+      show('hud'); setText('hudScore', '0%'); setText('hudLevelLabel', 'ZAPS'); setText('hudLevel', '0'); setText('hudTime', fmtTime(this.DURATION)); hide('hudCombo'); hide('hudP');
       banner('Batatinha frita 1, 2, 3!');
     },
-    newPlayer() { return { prog: 0, lives: 3, frozen: 0, zap: 0, done: 0, out: false, anim: 0, moving: 0, zappedThisRed: false, drift: 0 }; },
-    twoP(now) { return api.activePlayers(now) === 2; },
-    activeIds(now) { return this.twoP(now) ? [1, 2] : [1]; },
+    newPlayer() { return { prog: 0, target: 0, steps: 0, zaps: 0, frozen: 0, zap: 0, done: 0, walk: 0, lastStep: 0, zappedThisRed: false, cal: { up: 0.3, low: 0.7, ok: false }, tc: { sum: 0, n: 0, hold: 0, strokes: 0 }, warn: '', warnT: 0 }; },
 
-    // ---- Medição de movimento por mão --------------------------------------
-    measure(now) {
-      const asp = aspect(), two = this.twoP(now), seen = new Set(), step = { 1: 0, 2: 0 }, drift = { 1: 0, 2: 0 }, vis = { 1: false, 2: false };
-      for (const c of api.cursors) {
-        if (!c.lm) continue;
-        seen.add(c.id); const pl = two && c.player === 2 ? 2 : 1; let h = this.hands.get(c.id);  // 1 jogador: qualquer mão é do J1
-        const fresh = !h || h.lmRef !== c.lm;
-        if (!fresh) { if (now - h.lastFresh < M.REACQ_MS) { vis[pl] = true; drift[pl] = Math.max(drift[pl], h.drift || 0); } continue; }
-        const lm = c.lm; let x = 0, y = 0; for (const i of M.PTS) { x += lm[i].x * asp; y += lm[i].y; } x /= M.PTS.length; y /= M.PTS.length;
-        const palmNow = Math.hypot((lm[0].x - lm[9].x) * asp, lm[0].y - lm[9].y) || 1e-3;
-        if (!h || now - h.lastFresh > M.REACQ_MS) {
-          h = { lmRef: lm, lastFresh: now, x, y, px: x, py: y, palm: palmNow, ref: null, refAt: now + M.LOST_HAND_GRACE * 1000, drift: 0 };
-          this.hands.set(c.id, h); vis[pl] = true; continue;
-        }
-        const dts = Math.max(0.005, (now - h.lastFresh) / 1000), a = 1 - Math.exp(-dts / M.TAU);
-        h.lmRef = lm; h.lastFresh = now; h.x += (x - h.x) * a; h.y += (y - h.y) * a; h.palm += (palmNow - h.palm) * 0.2;
-        const d = Math.hypot(h.x - h.px, h.y - h.py) / h.palm; h.px = h.x; h.py = h.y;
-        step[pl] += Math.max(0, d - M.DEAD);
-        if (h.ref) h.drift = Math.hypot(h.x - h.ref.x, h.y - h.ref.y) / h.palm;
-        else if (now >= h.refAt) { h.ref = { x: h.x, y: h.y }; h.drift = 0; }
-        vis[pl] = true; drift[pl] = Math.max(drift[pl], h.drift);
-      }
-      for (const id of [...this.hands.keys()]) if (!seen.has(id) && now - this.hands.get(id).lastFresh > M.REACQ_MS) this.hands.delete(id);
-      return { step, drift, vis };
+    // ---- Quantos jogadores: "2" nas opções, ou (auto) 3+ mãos vistas nos últimos 4 s.
+    // Duas mãos de uma pessoa abrem para os dois lados da tela: isso NÃO conta como 2 jogadores.
+    ids(now) {
+      const pl = api.settings.players;
+      return pl === '2' || (pl !== '1' && now - this.seen3 < 4000) ? [1, 2] : [1];
     },
-    /** Nova pose de referência para todas as mãos (depois do tempo de reação). */
-    resetRefs(now, delay) { for (const h of this.hands.values()) { h.ref = null; h.drift = 0; h.refAt = now + delay * 1000; } },
+    span(n) { const c = this.P[n].cal; return Math.max(0.12, c.low - c.up); },
+    upLine(n) { const c = this.P[n].cal; return c.up + M.UP_FRAC * this.span(n); },
+
+    // ---- Medição por mão -----------------------------------------------------
+    measure(now, dt) {
+      // Rastreio PRÓPRIO das mãos (não usa a identidade dos cursores): braço balançando
+      // rápido salta mais que o raio de pareamento dos cursores, sobretudo no celular em pé,
+      // e isso zeraria o movimento a cada salto. Aqui o pareamento é pelo vizinho mais
+      // próximo na imagem, com raio largo, e só quando chega uma detecção nova.
+      const cur = api.state.lastLandmarks || [];
+      if (cur === this.lastDet && this.mLast) return { ...this.mLast, strokes: { 1: 0, 2: 0 }, partial: { 1: 0, 2: 0 } };
+      this.lastDet = cur;
+      this.c3 = cur.length >= 3 ? Math.min(30, this.c3 + 1) : Math.max(0, this.c3 - 0.25); if (this.c3 >= 6) this.seen3 = now;
+      const asp = aspect(), ids = this.ids(now), two = ids.length > 1;
+      const m = { vis: { 1: 0, 2: 0 }, up: { 1: 0, 2: 0 }, drift: { 1: 0, 2: 0 }, strokes: { 1: 0, 2: 0 }, partial: { 1: 0, 2: 0 }, arms: { 1: [], 2: [] }, ys: { 1: [], 2: [] }, still: { 1: true, 2: true } };
+      const obs = cur.map((lm) => {
+        let x = 0, y = 0; for (const i of M.PTS) { x += lm[i].x * asp; y += lm[i].y; } x /= M.PTS.length; y /= M.PTS.length;
+        return { x, y, palm: Math.hypot((lm[0].x - lm[9].x) * asp, lm[0].y - lm[9].y) || 1e-3, sx: api.toScreen({ x: x / asp, y }).x };
+      });
+      // Pareamento guloso por distância (raio largo: 0,35 da altura da imagem)
+      const pairs = []; obs.forEach((o, i) => this.tracks.forEach((h) => pairs.push({ i, h, d: Math.hypot(o.x - h.rx, o.y - h.ry) })));
+      pairs.sort((a, b) => a.d - b.d);
+      const usedO = new Set(), usedH = new Set();
+      for (const { i, h, d } of pairs) {
+        if (d > 0.35 || usedO.has(i) || usedH.has(h)) continue;
+        usedO.add(i); usedH.add(h); this.updTrack(h, obs[i], now);
+      }
+      obs.forEach((o, i) => { if (usedO.has(i)) return; const h = { rx: o.x, ry: o.y, x: o.x, y: o.y, palm: o.palm, lastFresh: now, ref: null, refAt: now + M.LOST_HAND_GRACE * 1000, drift: 0, dir: 0, from: o.y, ext: o.y, vy: 0, sx: o.sx }; this.tracks.push(h); usedH.add(h); });
+      this.tracks = this.tracks.filter((h) => now - h.lastFresh <= M.REACQ_MS);
+      for (const h of this.tracks) {
+        if (!usedH.has(h)) continue;                       // só mãos presentes NESTA detecção
+        const pl = two && h.sx >= api.W / 2 ? 2 : 1;       // em 2 jogadores: metade esquerda = J1
+        m.vis[pl]++; m.ys[pl].push(h.y); m.drift[pl] = Math.max(m.drift[pl], h.drift || 0);
+        if (h.vy > 0.12) m.still[pl] = false;
+        if (h.y <= this.upLine(pl)) m.up[pl]++;
+        m.arms[pl].push({ sx: h.sx, a: clamp((this.P[pl].cal.low - h.y) / this.span(pl), 0, 1.15) });
+        if (h.stroke) { const travel = h.stroke; h.stroke = 0; if (travel >= M.FULL * this.span(pl)) m.strokes[pl]++; else if (travel >= 0.3 * this.span(pl)) m.partial[pl]++; }
+      }
+      for (const n of [1, 2]) m.arms[n].sort((a, b) => a.sx - b.sx);
+      this.mLast = m; return m;
+    },
+    updTrack(h, o, now) {
+      const dts = Math.max(0.005, (now - h.lastFresh) / 1000), a = 1 - Math.exp(-dts / M.TAU), py = h.y;
+      h.rx = o.x; h.ry = o.y; h.sx = o.sx; h.lastFresh = now;
+      h.x += (o.x - h.x) * a; h.y += (o.y - h.y) * a; h.palm += (o.palm - h.palm) * 0.15;
+      h.vy = lerp(h.vy, Math.abs(h.y - py) / dts, 0.3);
+      if (h.ref) h.drift = Math.hypot(h.x - h.ref.x, h.y - h.ref.y) / h.palm;
+      else if (now >= h.refAt) { h.ref = { x: h.x, y: h.y }; h.drift = 0; }
+      h.stroke = this.stroke(h);
+    },
+    /** Virada do braço: devolve o percurso vertical do movimento que acabou (0 se ainda não virou). */
+    stroke(h) {
+      if (h.dir === 0) { if (Math.abs(h.y - h.from) > M.HYS) { h.dir = Math.sign(h.y - h.from); h.ext = h.y; } return 0; }
+      if ((h.y - h.ext) * h.dir > 0) { h.ext = h.y; return 0; }           // continua na mesma direção
+      if (Math.abs(h.y - h.ext) <= M.HYS) return 0;
+      const travel = Math.abs(h.ext - h.from); h.from = h.ext; h.ext = h.y; h.dir = -h.dir; return travel;
+    },
+    resetRefs(now, delay) { for (const h of this.tracks) { h.ref = null; h.drift = 0; h.refAt = now + delay * 1000; } },
+    warn(n, text) { const P = this.P[n]; if (P.warnT <= 0 || P.warn !== text) { P.warn = text; P.warnT = 1.1; } },
 
     // ---- Ciclo do robô ------------------------------------------------------
+    isRed() { return this.phase === 'red' || this.phase === 'turn' || (this.phase === 'tut' && this.tut.step === 4); },
     setPhase(p, now) {
       this.phase = p; this.ph = 0;
       if (p === 'green') {
         const k = Math.max(0.6, 1 - this.level * 0.05);
         this.fast = this.level > 0 && Math.random() < 0.25;
-        this.phDur = this.fast ? rand(1.3, 1.8) : rand(2.4, 4.2) * k; this.chantI = -1;
+        this.phDur = this.fast ? rand(1.4, 1.9) : rand(2.6, 4.4) * k; this.chantI = -1;
       } else if (p === 'turn' || p === 'back') { this.phDur = 0.32; tone(p === 'turn' ? 220 : 330, 0.25, 'sawtooth', 0.06, 0, p === 'turn' ? 520 : 160); }
       else if (p === 'red') {
-        this.phDur = rand(2.3, 3.8); this.resetRefs(now, M.GRACE);
+        this.phDur = rand(2.6, 4.0) + M.GRACE * 0.5; this.resetRefs(now, M.GRACE);
         for (const n of [1, 2]) this.P[n].zappedThisRed = false;
         tone(880, 0.12, 'square', 0.06); tone(660, 0.18, 'square', 0.06, 0.12);
       }
     },
-    zap(n, now) {
-      const P = this.P[n]; if (P.zappedThisRed || P.done || P.out) return;
-      P.zappedThisRed = true; P.zap = 0.7; P.frozen = 1.6; P.lives--; P.prog = Math.max(0, P.prog - M.BACK);
+    zap(n, now, why) {
+      const P = this.P[n]; if (P.zappedThisRed || P.done) return;
+      P.zappedThisRed = true; P.zap = 0.7; P.frozen = 1.6; P.zaps++;
       tone(1500, 0.4, 'sawtooth', 0.08, 0, 180); noise(0.25, 0.15); api.state.shake = 0.8;
       const a = this.avatarPos(n); emit(a.x, a.y - a.size * 0.6, 26, 'fire');
       this.fx.push({ text: 'ZAP!', n, life: 1.1 });
-      if (P.lives <= 0) { P.out = true; banner(this.activeIds(now).length > 1 ? `J${n} foi zapeado!` : 'ZAPEADO!'); }
-      else banner(this.activeIds(now).length > 1 ? `ZAP! J${n} se mexeu` : 'ZAP! Você se mexeu');
+      P.backTo = true;   // volta para a largada depois do congelamento (o laser aparece onde ele estava)
+      P.warn = `${why} · volta pra largada`; P.warnT = 2.4;   // aviso no próprio boneco (o banner central cobre a tela no celular)
     },
 
     update(dt, now) {
-      const m = this.measure(now), ids = this.activeIds(now); this.vis = m.vis;
-      for (const n of [1, 2]) { const P = this.P[n]; P.frozen = Math.max(0, P.frozen - dt); P.zap = Math.max(0, P.zap - dt); P.drift = m.drift[n]; P.moving = lerp(P.moving, clamp(m.step[n] / dt / 3, 0, 1), 1 - Math.pow(0.02, dt)); }
+      const m = this.measure(now, dt), ids = this.ids(now); this.m = m;
+      for (const n of [1, 2]) {
+        const P = this.P[n]; P.frozen = Math.max(0, P.frozen - dt); P.zap = Math.max(0, P.zap - dt); P.warnT = Math.max(0, P.warnT - dt);
+        if (P.backTo && P.frozen < 0.9) { P.backTo = false; P.target = 0; P.steps = 0; }
+        P.prog = lerp(P.prog, P.target, 1 - Math.pow(P.target < P.prog - 0.05 ? 0.02 : 0.001, dt));  // volta rápido; anda suave
+        P.walk = Math.max(0, P.walk - dt);
+      }
       for (const f of this.fx) f.life -= dt; this.fx = this.fx.filter((f) => f.life > 0);
 
-      // ---- Tutorial: ensina e calibra o limite da estátua -----------------
-      if (this.phase === 'tut') {
-        const T = this.tut, any = m.vis[1] || m.vis[2]; T.flash = Math.max(0, T.flash - dt * 2);
-        const next = () => { T.step++; T.hold = 0; T.flash = 1; sfx.patch(T.step); };
-        if (T.step === 0) { if (any) { T.hold += dt; if (T.hold > 0.6) next(); } else T.hold = 0; }
-        else if (T.step === 1) { T.run += m.step[1] + m.step[2]; this.animRun(dt, m); if (T.run > 4) { next(); this.turnK = 0; this.resetRefs(now, 0.6); T.maxDrift = 0; tone(220, 0.25, 'sawtooth', 0.06, 0, 520); } }
-        else if (T.step === 2) {
-          this.turnK = Math.min(1, this.turnK + dt / 0.32);
-          const d = Math.max(m.drift[1], m.drift[2]);
-          if (!any) T.hold = Math.max(0, T.hold - dt);
-          else if (d > 0.75) { T.hold = 0; T.maxDrift = 0; this.resetRefs(now, 0.4); }   // mexeu muito: recomeça a contagem
-          else { T.maxDrift = Math.max(T.maxDrift, d); T.hold += dt; }
-          if (T.hold >= 1.6) {
-            this.thr = clamp(T.maxDrift * 2.2 + 0.12, 0.3, 0.7); T.step = 3;
-            banner('VALENDO!'); sfx.level(); this.t = 0; this.setPhase('back', now); this.turnK = 1;
-          }
-        }
-        return;
-      }
+      // ---- Tutorial: ensina e calibra (altura do alto/cintura e trepidação) --
+      if (this.phase === 'tut') return this.tutorial(dt, now, m, ids);
 
       this.t += dt; this.ph += dt;
       setText('hudTime', fmtTime(Math.max(0, this.DURATION - this.t)));
-      // ---- Fases do robô
       if (this.phase === 'green') {
         this.turnK = 0;
         const i = Math.min(CHANT.length - 1, Math.floor(this.ph / this.phDur * CHANT.length));
         if (i !== this.chantI) { this.chantI = i; tone(CHANT_HZ[i], this.fast ? 0.09 : 0.14, 'triangle', 0.09); }
-        this.animRun(dt, m);
-        for (const n of ids) { const P = this.P[n]; if (P.done || P.out || P.frozen > 0) continue;
-          // A detecção chega em ritmo menor que o desenho: o movimento entra num "banco" e é
-          // gasto com teto por segundo (não por quadro), senão o teto cortaria quase tudo.
-          P.bank = Math.min(0.06, (P.bank || 0) + m.step[n] * M.RUN_K); const take = Math.min(P.bank, M.RUN_CAP * dt);
-          P.bank -= take; P.prog = Math.min(1, P.prog + take);
-          if (P.prog >= 1) { P.done = this.t; banner(ids.length > 1 ? `J${n} CHEGOU!` : 'CHEGOU!'); sfx.level(); const a = this.avatarPos(n); emit(a.x, a.y - a.size, 40, 'dust'); }
+        for (const n of ids) {
+          const P = this.P[n]; if (P.done || P.frozen > 0) continue;
+          if (m.vis[n] < 2) this.warn(n, 'mostre as DUAS mãos');
+          if (m.partial[n]) this.warn(n, 'movimento incompleto!');
+          for (let k = 0; k < m.strokes[n]; k++) {
+            if (this.t - P.lastStep < M.STEP_GAP) continue;
+            P.lastStep = this.t; P.steps++; P.target = Math.min(1, P.steps / M.STEPS); P.walk = 0.35;
+            tone(500 + (P.steps % 4) * 60, 0.05, 'square', 0.04);
+            if (P.target >= 1 && !P.done) { P.done = this.t; banner(ids.length > 1 ? `J${n} CHEGOU!` : 'CHEGOU!'); sfx.level(); const a = this.avatarPos(n); emit(a.x, a.y - a.size, 40, 'dust'); }
+          }
         }
-        if (this.ph >= this.phDur) { for (const n of [1, 2]) this.P[n].bank = 0; this.setPhase('turn', now); }
+        if (this.ph >= this.phDur) this.setPhase('turn', now);
       } else if (this.phase === 'turn') { this.turnK = Math.min(1, this.ph / this.phDur); if (this.ph >= this.phDur) this.setPhase('red', now); }
       else if (this.phase === 'red') {
         this.turnK = 1;
-        for (const n of ids) { const P = this.P[n]; if (P.done || P.out) continue; if (m.drift[n] > this.thr) this.zap(n, now); }
+        if (this.ph >= M.GRACE) for (const n of ids) {
+          const P = this.P[n]; if (P.done || P.zappedThisRed) continue;
+          if (m.vis[n] > m.up[n]) this.zap(n, now, 'mão abaixada');
+          else if (m.drift[n] > this.thr) this.zap(n, now, 'se mexeu');
+        }
         if (this.ph >= this.phDur) { this.level++; this.setPhase('back', now); }
       } else if (this.phase === 'back') { this.turnK = 1 - Math.min(1, this.ph / this.phDur); if (this.ph >= this.phDur) this.setPhase('green', now); }
 
       // ---- HUD e fim
-      const P1 = this.P[1]; setText('hudScore', `${Math.floor(P1.prog * 100)}%`); setText('hudLevel', '❤'.repeat(Math.max(0, P1.lives)) || '—');
+      const P1 = this.P[1]; setText('hudScore', `${Math.floor(P1.target * 100)}%`); setText('hudLevel', String(P1.zaps));
       $('hudP').classList.toggle('hidden', ids.length < 2);
-      if (ids.length > 1) { setText('hudP1', `${Math.floor(this.P[1].prog * 100)}%`); setText('hudP2', `${Math.floor(this.P[2].prog * 100)}%`); }
-      const over = ids.every((n) => this.P[n].done || this.P[n].out);
-      if (over || this.t >= this.DURATION) this.finish(ids);
+      if (ids.length > 1) { setText('hudP1', `${Math.floor(this.P[1].target * 100)}%`); setText('hudP2', `${Math.floor(this.P[2].target * 100)}%`); }
+      if (ids.every((n) => this.P[n].done) || this.t >= this.DURATION) this.finish(ids);
     },
-    animRun(dt, m) { for (const n of [1, 2]) this.P[n].anim += Math.min(m.step[n] * 6, dt * 14); },
+
+    tutorial(dt, now, m, ids) {
+      const T = this.tut; T.flash = Math.max(0, T.flash - dt * 2); T.msgT = Math.max(0, T.msgT - dt);
+      const next = () => { T.step++; T.hold = 0; T.flash = 1; sfx.patch(T.step); for (const n of [1, 2]) Object.assign(this.P[n].tc, { sum: 0, n: 0, hold: 0, strokes: 0 }); };
+      const all = (fn) => ids.every(fn);
+      if (T.step === 0) {                       // as duas mãos de cada jogador
+        if (all((n) => m.vis[n] >= 2)) { T.hold += dt; if (T.hold > 0.8) next(); } else T.hold = Math.max(0, T.hold - dt);
+      } else if (T.step === 1 || T.step === 2) { // grava o ALTO (1) e a CINTURA (2) de cada jogador
+        for (const n of ids) {
+          const tc = this.P[n].tc;
+          if (m.vis[n] >= 2 && m.still[n]) { tc.hold += dt; for (const y of m.ys[n]) { tc.sum += y; tc.n++; } }
+          else { tc.hold = 0; tc.sum = 0; tc.n = 0; }
+        }
+        T.hold = Math.min(...ids.map((n) => this.P[n].tc.hold));
+        if (T.hold >= 1) {
+          for (const n of ids) { const c = this.P[n].cal, v = this.P[n].tc.sum / Math.max(1, this.P[n].tc.n); if (T.step === 1) c.up = v; else c.low = v; }
+          if (T.step === 2 && ids.some((n) => this.P[n].cal.low - this.P[n].cal.up < 0.15)) {
+            T.msg = 'Movimento pequeno: suba MAIS e desça MAIS'; T.msgT = 2.5; T.step = 1; T.hold = 0; for (const n of ids) Object.assign(this.P[n].tc, { sum: 0, n: 0, hold: 0 }); sfx.tick();
+          } else { if (T.step === 2) for (const n of ids) this.P[n].cal.ok = true; next(); }
+        }
+      } else if (T.step === 3) {                // 4 passos completos
+        for (const n of ids) { this.P[n].tc.strokes += m.strokes[n]; if (m.strokes[n]) this.P[n].walk = 0.35; if (m.partial[n]) this.warn(n, 'movimento incompleto!'); }
+        T.hold = Math.min(...ids.map((n) => this.P[n].tc.strokes));
+        if (T.hold >= 4) { next(); this.turnK = 0; this.resetRefs(now, M.GRACE); T.maxDrift = 0; T.t = 0; tone(220, 0.25, 'sawtooth', 0.06, 0, 520); }
+      } else if (T.step === 4) {                // robô virou: mãos no alto e imóvel
+        this.turnK = Math.min(1, this.turnK + dt / 0.32); T.t += dt;
+        const upOk = all((n) => m.vis[n] >= 1 && m.up[n] >= m.vis[n]), d = Math.max(...ids.map((n) => m.drift[n]));
+        if (T.t < M.GRACE) return;
+        if (!upOk) { T.hold = 0; T.maxDrift = 0; this.resetRefs(now, 0.4); T.msg = 'Mãos PARA CIMA!'; T.msgT = 0.6; }
+        else if (d > 0.8) { T.hold = 0; T.maxDrift = 0; this.resetRefs(now, 0.4); T.msg = 'Fique PARADO!'; T.msgT = 0.6; }
+        else { T.maxDrift = Math.max(T.maxDrift, d); T.hold += dt; }
+        if (T.hold >= 1.6) {
+          this.thr = clamp(T.maxDrift * 2.2 + 0.15, 0.35, 0.8); T.step = 5;
+          banner('VALENDO!'); sfx.level(); this.t = 0; this.setPhase('back', now); this.turnK = 1;
+        }
+      }
+    },
 
     // ---- Desenho ------------------------------------------------------------
     geo() { const W = api.W, H = api.H; return { hy: H * 0.3, base: H * 0.94 - H * 0.3, W, H }; },
     proj(prog, lane) { const { hy, base, W } = this.geo(), s = 1 / (1 + prog * 1.8); return { x: W / 2 + lane * W * 0.26 * s, y: hy + base * s, s }; },
-    avatarPos(n) { const two = this.activeIds(performance.now()).length > 1, lane = two ? (n === 1 ? -1 : 1) : 0, p = this.proj(this.P[n].prog, lane); return { x: p.x, y: p.y, size: api.MIN * 0.24 * p.s }; },
+    avatarPos(n) { const two = this.ids(performance.now()).length > 1, lane = two ? (n === 1 ? -1 : 1) : 0, p = this.proj(this.P[n].prog, lane); return { x: p.x, y: p.y, size: api.MIN * 0.24 * p.s }; },
 
     render(ctx, t, now) {
       const W = api.W, H = api.H, MIN = api.MIN, { hy } = this.geo();
-      const red = this.phase === 'red' || (this.phase === 'tut' && this.tut.step === 2);
+      const red = this.isRed();
       sky(ctx, W, H, { top: red ? '#7f1d1d' : '#0ea5e9', bottom: red ? '#fca5a5' : '#e0f2fe', sunX: 0.15, sunY: 0.1 });
       // Morros
       ctx.fillStyle = red ? 'rgba(127,29,29,.45)' : 'rgba(21,128,61,.55)'; ctx.beginPath(); ctx.moveTo(0, hy);
@@ -199,7 +270,7 @@ export function install(api) {
       }
       label(ctx, 'CHEGADA', W / 2, f.y + MIN * 0.035, MIN * 0.032, '#fde047');
       // Jogadores (o mais longe primeiro)
-      const ids = this.phase === 'tut' ? [1] : this.activeIds(now);
+      const ids = this.ids(now);
       const order = [...ids].sort((a, b) => this.P[b].prog - this.P[a].prog);
       for (const n of order) this.drawAvatar(ctx, t, n, R);
       vignette(ctx, W, H, red ? 0.7 : 0.45);
@@ -266,84 +337,93 @@ export function install(api) {
     },
 
     drawAvatar(ctx, t, n, R) {
-      const P = this.P[n], a = this.avatarPos(n), s = a.size, col = P.out ? '#94a3b8' : PLAYER_COLORS[n];
-      const runPh = P.anim, sw = Math.sin(runPh) * (P.frozen > 0 || this.phase === 'red' ? 0.1 : 1);
+      const P = this.P[n], a = this.avatarPos(n), s = a.size, col = PLAYER_COLORS[n], MIN = api.MIN;
+      const step = P.walk > 0 ? Math.sin(t * 18) : 0;
       groundShadow(ctx, a.x, a.y, s * 0.32, s * 0.08, 0.35);
       const bodyTop = a.y - s * 0.9;
       ctx.lineCap = 'round';
-      // Pernas
+      // Pernas (dão o passo quando um passo completo é contado)
       ctx.strokeStyle = '#1e293b'; ctx.lineWidth = s * 0.11;
-      ctx.beginPath(); ctx.moveTo(a.x - s * 0.08, a.y - s * 0.35); ctx.lineTo(a.x - s * 0.1 + sw * s * 0.1, a.y - s * 0.02); ctx.moveTo(a.x + s * 0.08, a.y - s * 0.35); ctx.lineTo(a.x + s * 0.1 - sw * s * 0.1, a.y - s * 0.02); ctx.stroke();
-      // Braços (balançam com o movimento real)
+      ctx.beginPath(); ctx.moveTo(a.x - s * 0.08, a.y - s * 0.35); ctx.lineTo(a.x - s * 0.1 + step * s * 0.12, a.y - s * 0.02); ctx.moveTo(a.x + s * 0.08, a.y - s * 0.35); ctx.lineTo(a.x + s * 0.1 - step * s * 0.12, a.y - s * 0.02); ctx.stroke();
+      // Braços espelham a altura REAL das mãos do jogador (0 = cintura, 1 = alto)
+      const arms = this.m.arms[n] || [], len = s * 0.34;
+      const armA = [arms.length > 1 ? arms[0].a : arms.length ? arms[0].a : 0, arms.length > 1 ? arms[1].a : arms.length ? arms[0].a : 0];
       ctx.strokeStyle = col; ctx.lineWidth = s * 0.1;
-      ctx.beginPath(); ctx.moveTo(a.x - s * 0.18, bodyTop + s * 0.18); ctx.lineTo(a.x - s * 0.32, bodyTop + s * 0.3 - sw * s * 0.2); ctx.moveTo(a.x + s * 0.18, bodyTop + s * 0.18); ctx.lineTo(a.x + s * 0.32, bodyTop + s * 0.3 + sw * s * 0.2); ctx.stroke();
+      [-1, 1].forEach((sg, i) => {
+        const th = lerp(0.12, 0.97, clamp(armA[i], 0, 1)) * Math.PI, sx = a.x + sg * s * 0.18, sy = bodyTop + s * 0.18;
+        ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(sx + sg * Math.sin(th) * len, sy + Math.cos(th) * len); ctx.stroke();
+        if (arms.length < 2 && i === (arms.length ? 1 : 0) && this.phase !== 'tut') { ctx.fillStyle = '#fca5a5'; ctx.beginPath(); ctx.arc(sx + sg * len * 0.6, sy - len * 0.2, s * 0.05, 0, Math.PI * 2); ctx.fill(); }
+      });
       // Corpo + cabeça
       ctx.fillStyle = col; ctx.beginPath(); ctx.roundRect(a.x - s * 0.2, bodyTop + s * 0.1, s * 0.4, s * 0.48, s * 0.14); ctx.fill();
-      ctx.fillStyle = P.out ? '#cbd5e1' : '#fcd9b6'; ctx.beginPath(); ctx.arc(a.x, bodyTop - s * 0.05, s * 0.17, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#fcd9b6'; ctx.beginPath(); ctx.arc(a.x, bodyTop - s * 0.05, s * 0.17, 0, Math.PI * 2); ctx.fill();
       ctx.fillStyle = '#0f172a'; for (const ex of [-0.06, 0.06]) { ctx.beginPath(); ctx.arc(a.x + ex * s, bodyTop - s * 0.07, s * 0.022, 0, Math.PI * 2); ctx.fill(); }
-      // Congelado pelo ZAP (efeito de gelo, sem nada gráfico)
+      // Congelado pelo ZAP (efeito de gelo, nada gráfico)
       if (P.frozen > 0) {
-        ctx.fillStyle = `rgba(125,211,252,${0.35 + 0.25 * Math.sin(t * 20)})`; ctx.beginPath(); ctx.roundRect(a.x - s * 0.38, bodyTop - s * 0.26, s * 0.76, s * 1.18, s * 0.12); ctx.fill();
+        ctx.fillStyle = `rgba(125,211,252,${0.35 + 0.25 * Math.sin(t * 20)})`; ctx.beginPath(); ctx.roundRect(a.x - s * 0.42, bodyTop - s * 0.5, s * 0.84, s * 1.42, s * 0.12); ctx.fill();
         ctx.strokeStyle = 'rgba(224,242,254,.9)'; ctx.lineWidth = Math.max(1, s * 0.02); ctx.stroke();
       }
       // Laser do olho do robô até o jogador
       if (P.zap > 0) {
         const k = P.zap / 0.7; ctx.save(); ctx.globalAlpha = Math.min(1, k * 1.6);
-        ctx.strokeStyle = '#fecaca'; ctx.shadowColor = '#ef4444'; ctx.shadowBlur = api.MIN * 0.04; ctx.lineWidth = api.MIN * 0.012 * (0.5 + k);
+        ctx.strokeStyle = '#fecaca'; ctx.shadowColor = '#ef4444'; ctx.shadowBlur = MIN * 0.04; ctx.lineWidth = MIN * 0.012 * (0.5 + k);
         ctx.beginPath(); ctx.moveTo(R.eye.x, R.eye.y); ctx.lineTo(a.x, bodyTop + s * 0.3); ctx.stroke();
-        ctx.strokeStyle = '#ef4444'; ctx.lineWidth = api.MIN * 0.024 * k; ctx.globalAlpha = 0.4 * k; ctx.stroke(); ctx.restore();
+        ctx.strokeStyle = '#ef4444'; ctx.lineWidth = MIN * 0.024 * k; ctx.globalAlpha = 0.4 * k; ctx.stroke(); ctx.restore();
       }
-      // Rótulo do jogador e vidas
-      const two = this.activeIds(performance.now()).length > 1;
-      const tag = P.done ? 'CHEGOU!' : P.out ? 'FORA' : `${two ? `J${n} ` : ''}${'❤'.repeat(P.lives)}`;
-      label(ctx, tag, a.x, bodyTop - s * 0.42, Math.max(api.MIN * 0.03, s * 0.16), P.done ? '#4ade80' : col);
-      for (const f of this.fx) if (f.n === n) label(ctx, f.text, a.x, bodyTop - s * 0.75 - (1.1 - f.life) * s * 0.4, api.MIN * 0.07, '#fde047');
-      // Medidor de estátua (só no vermelho): quão perto do limite
-      if ((this.phase === 'red' || (this.phase === 'tut' && this.tut.step === 2)) && !P.done && !P.out) {
-        const k = clamp(P.drift / this.thr, 0, 1), bw = Math.max(api.MIN * 0.12, s * 0.7), bx = a.x - bw / 2, by = a.y + api.MIN * 0.02;
-        ctx.fillStyle = 'rgba(2,6,23,.6)'; ctx.fillRect(bx, by, bw, api.MIN * 0.018);
-        ctx.fillStyle = k < 0.5 ? '#4ade80' : k < 0.8 ? '#facc15' : '#ef4444'; ctx.fillRect(bx, by, bw * k, api.MIN * 0.018);
+      // Rótulo, avisos e efeitos
+      const two = this.ids(performance.now()).length > 1;
+      const tag = P.done ? 'CHEGOU!' : `${two ? `J${n} · ` : ''}${P.steps}/${M.STEPS} passos`;
+      label(ctx, tag, a.x, bodyTop - s * 0.62, Math.max(MIN * 0.028, s * 0.14), P.done ? '#4ade80' : col);
+      if (P.warnT > 0 && !P.done) label(ctx, P.warn, a.x, bodyTop - s * 0.62 - MIN * 0.045, MIN * 0.034, '#fca5a5');
+      for (const f of this.fx) if (f.n === n) label(ctx, f.text, a.x, bodyTop - s * 0.9 - (1.1 - f.life) * s * 0.4, MIN * 0.07, '#fde047');
+      // Na estátua: mãos no alto (✓ por mão) + medidor de imobilidade
+      if (this.isRed() && !P.done && this.phase !== 'turn') {
+        const vis = this.m.vis[n], up = this.m.up[n], ok = vis >= 1 && up >= vis;
+        label(ctx, vis ? `mãos no alto ${up}/${vis}` : 'mostre as mãos', a.x, a.y + MIN * 0.035, MIN * 0.03, ok ? '#86efac' : '#fca5a5');
+        const k = clamp(this.m.drift[n] / this.thr, 0, 1), bw = Math.max(MIN * 0.14, s * 0.7), bx = a.x - bw / 2, by = a.y + MIN * 0.06;
+        ctx.fillStyle = 'rgba(2,6,23,.6)'; ctx.fillRect(bx, by, bw, MIN * 0.016);
+        ctx.fillStyle = k < 0.5 ? '#4ade80' : k < 0.8 ? '#facc15' : '#ef4444'; ctx.fillRect(bx, by, bw * k, MIN * 0.016);
       }
     },
 
     drawUI(ctx, t, now, ids, red) {
       const W = api.W, H = api.H, MIN = api.MIN;
-      ids.forEach((n, i) => { const ok = this.vis[n], txt = ok ? `${ids.length > 1 ? `J${n}: ` : ''}mão vista` : `${ids.length > 1 ? `J${n}: ` : ''}mostre a mão`;
-        label(ctx, txt, i === 0 ? MIN * 0.03 : W - MIN * 0.03, H * 0.9, MIN * 0.032, ok ? '#86efac' : '#fca5a5', i === 0 ? 'left' : 'right'); });
+      const fit = (txt, base) => Math.min(base, W * 0.92 / (txt.length * 0.56));
       if (this.phase === 'tut') {
-        const T = this.tut, steps = ['Mostre as mãos para a câmera', 'Mexa os braços como se estivesse CORRENDO', 'O robô virou! Fique PARADO como estátua'];
-        const st = Math.min(T.step, 2);
-        // Texto no alto (como o canto), para não esconder o robô nem o boneco
-        label(ctx, `TUTORIAL ${st + 1}/3`, W / 2, H * 0.12, MIN * 0.034, '#93c5fd');
-        label(ctx, steps[st], W / 2, H * 0.16, Math.min(MIN * 0.05, W * 0.92 / (steps[st].length * 0.56)), T.flash > 0 ? '#4ade80' : '#fde047');
-        const prog = st === 0 ? T.hold / 0.6 : st === 1 ? T.run / 4 : T.hold / 1.6, bw = W * 0.4;
-        ctx.fillStyle = 'rgba(2,6,23,.55)'; ctx.fillRect(W / 2 - bw / 2, H * 0.2, bw, MIN * 0.018); ctx.fillStyle = '#4ade80'; ctx.fillRect(W / 2 - bw / 2, H * 0.2, bw * clamp(prog, 0, 1), MIN * 0.018);
-        return;
-      }
-      if (this.phase === 'green' || this.phase === 'back') {
-        // Canto do robô: sílabas acendem
+        const T = this.tut, two = ids.length > 1;
+        const steps = [two ? 'Cada jogador: mostre as DUAS mãos' : 'Mostre as DUAS mãos para a câmera', 'Levante as DUAS mãos bem ALTO e segure', 'Agora abaixe as mãos até a CINTURA e segure',
+          'Corra: suba e desça os braços POR INTEIRO', 'O robô virou! MÃOS PARA CIMA e fique PARADO'];
+        const st = Math.min(T.step, 4), goal = [0.8, 1, 1, 4, 1.6][st];
+        label(ctx, `TUTORIAL ${st + 1}/5`, W / 2, H * 0.12, MIN * 0.034, '#93c5fd');
+        label(ctx, steps[st], W / 2, H * 0.165, fit(steps[st], MIN * 0.05), T.flash > 0 ? '#4ade80' : '#fde047');
+        const bw = W * 0.4; ctx.fillStyle = 'rgba(2,6,23,.55)'; ctx.fillRect(W / 2 - bw / 2, H * 0.2, bw, MIN * 0.018);
+        ctx.fillStyle = '#4ade80'; ctx.fillRect(W / 2 - bw / 2, H * 0.2, bw * clamp(T.hold / goal, 0, 1), MIN * 0.018);
+        if (T.msgT > 0) label(ctx, T.msg, W / 2, H * 0.25, MIN * 0.04, '#fca5a5');
+      } else if (this.phase === 'green' || this.phase === 'back') {
         const n = this.phase === 'green' ? this.chantI : -1, size = MIN * 0.06, words = ['BATATINHA', 'FRITA', '1, 2, 3!'];
         const lit = n < 0 ? 0 : n < 4 ? 1 : n < 6 ? 2 : 3;
         const total = words.map((w) => w.length).reduce((a, b) => a + b, 0), cw = size * 0.62; let x = W / 2 - (total * cw + size) / 2;
         words.forEach((w, i) => { const wx = x + (w.length * cw) / 2; label(ctx, w, wx, H * 0.15, size, i < lit ? '#fde047' : 'rgba(255,255,255,.45)'); x += w.length * cw + size * 0.5; });
-        label(ctx, 'MEXA OS BRAÇOS PARA CORRER!', W / 2, H * 0.215, MIN * 0.04, '#bbf7d0');
+        const sub = 'SUBA E DESÇA OS BRAÇOS POR INTEIRO PARA ANDAR';
+        label(ctx, sub, W / 2, H * 0.215, fit(sub, MIN * 0.038), '#bbf7d0');
       } else {
         const blink = Math.floor(t * 4) % 2 === 0;
-        label(ctx, 'ESTÁTUA!', W / 2, H * 0.15, MIN * 0.08, blink ? '#fecaca' : '#ef4444');
-        label(ctx, 'Não se mexa até o robô virar de costas', W / 2, H * 0.215, MIN * 0.035, '#fff');
+        label(ctx, 'MÃOS PARA CIMA!', W / 2, H * 0.15, fit('MÃOS PARA CIMA!', MIN * 0.075), blink ? '#fecaca' : '#ef4444');
+        const sub = 'e ESTÁTUA até o robô virar de costas';
+        label(ctx, sub, W / 2, H * 0.215, fit(sub, MIN * 0.035), '#fff');
       }
     },
 
     finish(ids) {
       if (api.state.phase !== 'mini') return;
-      const sc = (n) => { const P = this.P[n]; return P.done ? 1000 + Math.round(Math.max(0, this.DURATION - P.done) * 15) + P.lives * 150 : Math.round(P.prog * 700); };
-      const desc = (n) => { const P = this.P[n]; return P.done ? `chegou em ${fmtTime(P.done)}` : P.out ? `zapeado em ${Math.floor(P.prog * 100)}%` : `${Math.floor(P.prog * 100)}% do caminho`; };
+      const sc = (n) => { const P = this.P[n]; return P.done ? 1000 + Math.round(Math.max(0, this.DURATION - P.done) * 15) + (P.zaps ? 0 : 400) : Math.round(P.target * 700); };
+      const desc = (n) => { const P = this.P[n]; return `${P.done ? `chegou em ${fmtTime(P.done)}` : `${Math.floor(P.target * 100)}% do caminho`} · ${P.zaps} zap(s)`; };
       if (ids.length > 1) {
         const s1 = sc(1), s2 = sc(2), w = s1 === s2 ? 0 : s1 > s2 ? 1 : 2;
         api.endMini({ title: w ? `JOGADOR ${w} VENCEU!` : 'EMPATE!', score: Math.max(s1, s2), bestKey: 'bestBatatinha', stats: `J1 ${desc(1)} · J2 ${desc(2)}` });
       } else {
         const P = this.P[1];
-        api.endMini({ title: P.done ? (P.lives === 3 ? 'CHEGOU SEM NENHUM ZAP!' : 'VOCÊ CHEGOU!') : P.out ? 'ZAPEADO!' : 'O TEMPO ACABOU!', score: sc(1), bestKey: 'bestBatatinha', stats: `${desc(1)} · ${P.lives} vida(s) · ${this.level} rodadas do robô` });
+        api.endMini({ title: P.done ? (P.zaps === 0 ? 'CHEGOU SEM NENHUM ZAP!' : 'VOCÊ CHEGOU!') : 'O TEMPO ACABOU!', score: sc(1), bestKey: 'bestBatatinha', stats: `${desc(1)} · ${this.level} rodadas do robô` });
       }
     },
   };

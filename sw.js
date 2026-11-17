@@ -10,7 +10,7 @@
  * disponível" e só troca quando o jogador toca em "Atualizar" (nunca no meio
  * de uma partida).
  * ========================================================================== */
-const VERSION = 'v4.6.0';
+const VERSION = 'v4.6.1';
 const APP_CACHE = `represa-app-${VERSION}`;
 const RUNTIME_CACHE = 'represa-runtime-v1'; // WASM/modelo: mantido entre versões
 

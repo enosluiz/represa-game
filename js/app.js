@@ -74,7 +74,7 @@ const state = {
   scenarioIdx: 0,
   p2SeenAt: -1e9,      // última vez que uma mão do lado do jogador 2 foi vista (modo auto)
 };
-const APP_VERSION = '4.6.0';
+const APP_VERSION = '4.6.1';
 const stats = { fps: 0, detFps: 0, inferMs: 0, frames: 0, detFrames: 0, lastTick: 0, delegate: '-', handsEver: 0, maxHands: 0, handSize: 0 };
 
 let game = null;
@@ -194,10 +194,16 @@ async function initTracker() {
   try { tracker = await HandLandmarker.createFromOptions(fileset, opts('GPU')); stats.delegate = 'GPU'; }
   catch (e) { console.warn('GPU indisponível, usando CPU', e); if (settings.delegate === 'GPU') throw e; tracker = await HandLandmarker.createFromOptions(fileset, opts('CPU')); stats.delegate = 'CPU'; }
 }
+/** Quantas mãos o detector procura (2 por padrão; jogos com 2 jogadores × 2 mãos pedem 4). Sem recriar o modelo. */
+let numHandsNow = 2;
+function setNumHands(n) {
+  if (!tracker || n === numHandsNow) return;
+  numHandsNow = n; Promise.resolve(tracker.setOptions?.({ numHands: n })).catch((e) => console.warn('numHands', e));
+}
 /** Troca GPU↔CPU em tempo real (sem recarregar). */
 async function reloadTracker() {
   if (!tracker) return;
-  const old = tracker; tracker = null; try { old.close?.(); } catch { /* */ }
+  const old = tracker; tracker = null; numHandsNow = 2; try { old.close?.(); } catch { /* */ }
   stats.handsEver = 0; stats.maxHands = 0;
   try { await initTracker(); toast(`IA rodando em ${stats.delegate}`); } catch (e) { setStatus(explainError(e), true); }
   updateChips();
@@ -923,7 +929,7 @@ function showScreen(id) {
   }
 }
 
-function goMenu() { state.phase = 'menu'; game = null; activeMini = null; $('hudWaterBox').classList.remove('hidden'); particles.length = 0; rain.length = 0; bgCacheKey = ''; updateChips(); engage?.renderMenu(); showScreen('menu'); }
+function goMenu() { setNumHands(2); state.phase = 'menu'; game = null; activeMini = null; $('hudWaterBox').classList.remove('hidden'); particles.length = 0; rain.length = 0; bgCacheKey = ''; updateChips(); engage?.renderMenu(); showScreen('menu'); }
 function goSelect() { state.phase = 'select'; buildSelect(); showScreen('select'); }
 
 function startEndless() {
@@ -1139,7 +1145,7 @@ const miniAPI = {
   get W() { return W; }, get H() { return H; }, get MIN() { return MIN; }, get cursors() { return cursors; }, cx, toScreen, get actx() { return actx; },
   state, settings, sfx, tone, noise, banner, toast, show, hide, setText, showScreen, PLAYER_COLORS, activePlayers,
   emit, particles, rand, randInt, clamp, lerp, pick, fmtTime, contactRadius, ensureAudio, requestWakeLock, progress, saveProgress,
-  startMini(mini) { ensureAudio(); requestWakeLock(); game = null; activeMini = mini; state.lastGame = mini.name; window.__mini = mini; mini.start(); $('hudWaterBox').classList.add('hidden'); beginCountdown(3); },
+  startMini(mini) { ensureAudio(); requestWakeLock(); setNumHands(mini.numHands || 2); game = null; activeMini = mini; state.lastGame = mini.name; window.__mini = mini; mini.start(); $('hudWaterBox').classList.add('hidden'); beginCountdown(3); },
   endMini({ title, score, stats, bestKey }) {
     state.phase = 'over'; sfx.over();
     const prevBest = progress[bestKey] || 0, isRecord = score > prevBest; if (isRecord) { progress[bestKey] = score; saveProgress(); }
