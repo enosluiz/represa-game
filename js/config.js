@@ -15,3 +15,9 @@ export const FEEDBACK_KEY = '';
 // (ex.: enosluiz.github.io/represa-game). Quando o domínio próprio estiver no ar, coloque
 // 'https://www.levantaebrinca.com.br'.
 export const SITE_URL = '';
+
+// STATS_CODE: código do site no GoatCounter (https://www.goatcounter.com), contagem de acessos
+// e incidentes ANÔNIMA: sem cookies, sem IP guardado, sem dados pessoais (adequado ao ECA Digital/LGPD).
+// Crie a conta grátis com este mesmo código (levantaebrinca → levantaebrinca.goatcounter.com).
+// Vazio = desliga a contagem. O usuário também pode desligar em Ajustes → Estatísticas anônimas.
+export const STATS_CODE = 'levantaebrinca';

@@ -59,6 +59,12 @@ Depois, em Settings → Pages do repositório: Custom domain = `www.levantaebrin
 
 Gestos: contagem de dedos estendidos a partir dos 21 pontos (punho = 0–1, tesoura = indicador+médio, aberta = 4–5). Funciona com a mão de frente para a câmera.
 
+## Estatísticas anônimas e relatório diário
+- `js/stats.js` conta acessos, jogos e incidentes no **GoatCounter** (`STATS_CODE` em `js/config.js`, hoje `levantaebrinca`). Sem cookies, sem identificador do aparelho, sem texto digitado e sem imagem da câmera: só contadores como `jogo/inicio/batatinha-1-2-3`, `jogo/fim/...`, `idioma/inicio/en`, `camera/ok`, `ia/gpu`, `feedback/nota-4`.
+- Incidentes (no máximo 1 por sessão cada): `incidente/camera-NotAllowedError` (e outros erros de câmera), `incidente/camera-modelo-ia`, `incidente/gpu-cega`, `incidente/sem-https`, `incidente/sem-maos-60s/<GPU|CPU>` (câmera ligada há 60 s sem ver nenhuma mão), `incidente/js-erro/<arquivo:linha>`.
+- Respeita "Do Not Track" e a opção **Ajustes → Estatísticas anônimas**; não conta em localhost nem em testes automatizados.
+- Um relatório diário (acessos, incidentes e sugestões de melhoria) é montado por uma tarefa agendada e enviado por e-mail ao editor.
+
 ## Idiomas (PT / EN / ES)
 - Bandeiras (SVG, sem emoji: emoji de bandeira não aparece no Windows nem em várias TVs) no topo da tela de entrada; a escolha fica salva no aparelho. Na 1ª visita, segue o idioma do navegador.
 - `js/i18n.js` traduz **só a exibição**: um MutationObserver traduz textos e atributos (aria-label, title, placeholder) que aparecem ou mudam no DOM, e `fillText`/`strokeText`/`measureText` do canvas passam pelo tradutor, então tudo o que os jogos desenham sai traduzido sem mexer em cada jogo. Regras, testes de conquista e o diagnóstico enviado ao editor continuam em português.

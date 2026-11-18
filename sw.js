@@ -10,7 +10,7 @@
  * disponível" e só troca quando o jogador toca em "Atualizar" (nunca no meio
  * de uma partida).
  * ========================================================================== */
-const VERSION = 'v4.7.0';
+const VERSION = 'v4.8.0';
 const APP_CACHE = `represa-app-${VERSION}`;
 const RUNTIME_CACHE = 'represa-runtime-v1'; // WASM/modelo: mantido entre versões
 
@@ -29,6 +29,7 @@ const APP_SHELL = [
   './js/batatinha.js',
   './js/i18n.js',
   './js/i18n-dict.js',
+  './js/stats.js',
   './js/circo.js',
   './js/art.js',
   './js/icons.js',
@@ -95,6 +96,7 @@ self.addEventListener('fetch', (event) => {
   const req = event.request;
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
+  if (url.hostname.endsWith('goatcounter.com')) return;   // contagem anônima: nunca vai para o cache
 
   // 1) Navegação: serve o index.html DA MESMA VERSÃO dos scripts em cache (coerência).
   //    A versão nova chega pelo ciclo do service worker (VERSION ↑ → "Atualizar" / auto no menu).

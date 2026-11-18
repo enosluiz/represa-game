@@ -20,6 +20,7 @@
 // =============================================================================
 import { texture, vignette, groundShadow, sky } from './art.js';
 import { t as tr } from './i18n.js';
+import { track } from './stats.js';
 
 export function install(api) {
   const { sfx, tone, noise, banner, show, hide, setText, PLAYER_COLORS, rand, clamp, lerp, fmtTime, emit } = api;
@@ -150,6 +151,7 @@ export function install(api) {
     /** Pular explicativo + tutorial: usa o último ajuste salvo neste aparelho (ou o padrão). */
     skip() {
       if (this.phase !== 'intro' && this.phase !== 'tut') return;
+      track('batatinha/pulou-tutorial');
       const sv = loadCal();
       for (const n of [1, 2]) Object.assign(this.P[n].cal, sv ? { up: sv.up, low: sv.low, ok: true } : { up: 0.3, low: 0.7, ok: false });
       this.thr = sv ? sv.thr : M.THR_DEFAULT;

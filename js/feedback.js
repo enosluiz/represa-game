@@ -11,6 +11,7 @@
 // PRIVACIDADE: nenhuma imagem da câmera é enviada. Só texto: o que a pessoa escreve e,
 // se ela deixar marcado, dados técnicos (aparelho, navegador, desempenho da IA).
 // =============================================================================
+import { track } from './stats.js';
 import { FEEDBACK_KEY } from './config.js';
 const ENDPOINT = FEEDBACK_KEY ? `https://formsubmit.co/ajax/${encodeURIComponent(FEEDBACK_KEY)}` : '';
 const QUEUE_KEY = 'represa.fbQueue';
@@ -108,6 +109,7 @@ export function install(api) {
   $('fbSend').addEventListener('click', async () => {
     const btn = $('fbSend'); if (btn.disabled) return;
     const cats = CATEGORIES.filter((c) => fb.cats.has(c.id)).map((c) => c.label);
+    track(`feedback/nota-${fb.rating || 0}`); for (const id of fb.cats) track(`feedback/${id}`);   // só contadores; o texto nunca vai para a estatística
     const payload = {
       _subject: `Levanta e Brinca · feedback${fb.rating ? ' ★' + fb.rating : ''}${cats.length ? ' · ' + cats[0] : ''}`,
       _template: 'table', _captcha: 'false',

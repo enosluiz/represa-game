@@ -11,6 +11,7 @@
 import { SITE_URL } from './config.js';
 import { brandIcon } from './brands.js';
 import { t } from './i18n.js';
+import { track } from './stats.js';
 
 const KEY = 'represa.profile';
 const GAMES = {
@@ -228,6 +229,7 @@ export function install(api) {
     return new Promise((res) => c.toBlob((b) => res(b), 'image/jpeg', 0.9));
   }
   async function shareNative(info) {
+    track('compartilhou/nativo');
     const text = shareText(info), url = siteUrl();
     try {
       const blob = await resultImage(info);

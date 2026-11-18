@@ -10,6 +10,7 @@
 import { texture, vignette, spotlight, sphere, groundShadow, sky, crowd, clearArtCache } from './art.js';
 import { icon, hydrateIcons } from './icons.js';
 import { t, installDom, setLang, lang as langNow, LANGS, FLAGS } from './i18n.js';
+import { track, slug, statsOn, setStatsOn } from './stats.js';
 
 // Assets do MediaPipe: cópia local (funciona offline) com fallback para CDN
 const MP_VERSION   = '0.10.14';
@@ -75,7 +76,7 @@ const state = {
   scenarioIdx: 0,
   p2SeenAt: -1e9,      // última vez que uma mão do lado do jogador 2 foi vista (modo auto)
 };
-const APP_VERSION = '4.7.0';
+const APP_VERSION = '4.8.0';
 const stats = { fps: 0, detFps: 0, inferMs: 0, frames: 0, detFrames: 0, lastTick: 0, delegate: '-', handsEver: 0, maxHands: 0, handSize: 0 };
 
 let game = null;
@@ -176,7 +177,7 @@ async function gpuSanity(res, input, now) {
   gpuCheck.probes++;
   let cpu = null; try { cpu = gpuCheck.probe.detect(input); } catch (e) { return; }
   if (cpu && cpu.landmarks && cpu.landmarks.length) {
-    gpuBlind.set(true); gpuCheck.probe.close?.(); gpuCheck.probe = null; gpuCheck.ok = true;
+    gpuBlind.set(true); track('incidente/gpu-cega', { unique: true }); gpuCheck.probe.close?.(); gpuCheck.probe = null; gpuCheck.ok = true;
     toast('A placa de vídeo deste aparelho não enxergava as mãos. Agora a IA roda no processador (CPU).', 5000);
     await reloadTracker();
   }
@@ -852,6 +853,7 @@ function updateChips() {
   setOpt('optZoom', `${settings.zoom === 'auto' ? 'Automático' : { 1: 'Perto · 1×', 1.6: 'Média · 1,6×', 2.3: 'Longe · 2,3×' }[settings.zoom]}${settings.zoom === 'auto' ? ' · ' + zoomState.z.toFixed(1).replace('.', ',') + '×' : ''}`, settings.zoom !== 1);
   setOpt('optDelegate', `${settings.delegate === 'auto' ? 'Automático' : settings.delegate}${tracker ? ' · ' + stats.delegate : ''}`);
   setOpt('optFull', document.fullscreenElement ? 'Ligada' : 'Desligada', !!document.fullscreenElement);
+  setOpt('optStats', statsOn() ? 'Ligado' : 'Desligado', statsOn());
   for (const b of document.querySelectorAll('[data-players]')) { const on = b.dataset.players === settings.players; b.classList.toggle('chip-on', on); b.setAttribute('aria-pressed', on); }
   for (const el of document.querySelectorAll('[data-best]')) { const v = progress[el.dataset.best] || 0; el.innerHTML = v ? `${icon('trophy', 'ico ico-xs')} ${v.toLocaleString('pt-BR')}` : 'Novo'; }
   $('bestMenu').textContent = `Campanha ${progress.bestCampaign.toLocaleString('pt-BR')} · Infinito ${progress.bestEndless.toLocaleString('pt-BR')}`;
@@ -942,6 +944,7 @@ function startEndless() {
 
 /** Mostra a tela de introdução do cenário e aguarda "Começar". */
 function startScenario(carryScore) {
+  track(`jogo/inicio/represa-cenario-${(state.scenarioIdx ?? 0) + 1}`);
   state.lastGame = `Represa · cenário ${state.scenarioIdx + 1}`;
   ensureAudio(); requestWakeLock();
   const sc = SCENARIOS[state.scenarioIdx];
@@ -971,7 +974,7 @@ function finishScenario(won) {
   progress.stars[sc.id] = Math.max(progress.stars[sc.id] || 0, stars);
   const prevBest = progress.bestCampaign || 0, isRecord = game.score > prevBest;
   if (isRecord) progress.bestCampaign = game.score;
-  saveProgress(); sfx.level(); state.phase = 'result';
+  saveProgress(); sfx.level(); state.phase = 'result'; track(`jogo/fim/represa-cenario-${state.scenarioIdx + 1}-vencido`);
   $('resName').textContent = sc.name; $('resStars').textContent = '★'.repeat(stars) + '☆'.repeat(3 - stars);
   $('resStats').textContent = `${Math.ceil(water)}% do reservatório · ${game.patched} reparos · ${game.score.toLocaleString('pt-BR')} pts acumulados`;
   const two = activePlayers() === 2;
@@ -985,6 +988,7 @@ function finishScenario(won) {
 function nextScenario() { state.scenarioIdx++; startScenario(game.score); }
 
 function gameOver() {
+  track(`jogo/fim/${game?.sc === ENDLESS ? 'represa-infinita' : 'represa-rompeu'}`);
   state.phase = 'over'; sfx.over();
   const endless = game.sc === ENDLESS;
   const key = endless ? 'bestEndless' : 'bestCampaign';
@@ -1045,7 +1049,7 @@ const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platfo
 let deferredInstall = null, pendingWorker = null, userAskedUpdate = false;
 function setupPWA() {
   window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); deferredInstall = e; if (!isStandalone()) show('btnInstall'); });
-  window.addEventListener('appinstalled', () => { deferredInstall = null; hide('btnInstall'); toast('✅ App instalado! Abra pelo ícone na tela inicial.'); });
+  window.addEventListener('appinstalled', () => { track('app/instalado'); deferredInstall = null; hide('btnInstall'); toast('✅ App instalado! Abra pelo ícone na tela inicial.'); });
   $('btnInstall').addEventListener('click', async () => { if (!deferredInstall) return; deferredInstall.prompt(); await deferredInstall.userChoice.catch(() => null); deferredInstall = null; hide('btnInstall'); });
   if (isIOS && !isStandalone()) show('iosHint');
   window.addEventListener('online', refreshOfflineStatus); window.addEventListener('offline', refreshOfflineStatus);
@@ -1085,6 +1089,7 @@ async function activateCamera() {
     const secure = location.href.replace(/^http:/, 'https:');
     $('status').innerHTML = t(`O site abriu sem cadeado (http) e o navegador bloqueia a câmera. <a class="sec-link" href="${secure}">Abrir versão segura (https)</a>`);
     $('status').className = 'status-pill status-err';
+    track('incidente/sem-https', { unique: true });
     return false;
   }
   $('btnCam').disabled = true;
@@ -1094,8 +1099,9 @@ async function activateCamera() {
     hide('btnCam'); show('menuPlay');
     setStatus(`Pronto · IA em ${stats.delegate}. Mostre a mão e segure sobre um jogo.`);
     setTimeout(refreshOfflineStatus, 1500); updateChips();
+    track('camera/ok', { unique: true }); track(`ia/${stats.delegate}`, { unique: true }); camOkAt = performance.now();
     return true;
-  } catch (err) { console.error(err); setStatus(explainError(err), true); toast(explainError(err), 4000); $('btnCam').disabled = false; return false; }
+  } catch (err) { console.error(err); track(`incidente/camera-${err?.name || (/fetch|network|load/i.test(String(err?.message)) ? 'modelo-ia' : 'erro')}`, { unique: true }); setStatus(explainError(err), true); toast(explainError(err), 4000); $('btnCam').disabled = false; return false; }
 }
 $('btnCam').addEventListener('click', async () => { if (await activateCamera() && ['boot', 'menu'].includes(state.phase)) state.phase = 'menu'; });
 $('btnCampaign').addEventListener('click', goSelect);
@@ -1103,6 +1109,7 @@ $('btnEndless').addEventListener('click', startEndless);
 $('btnSelBack').addEventListener('click', goMenu);
 $('btnSettings').addEventListener('click', () => { state.phase = 'settings'; updateChips(); showScreen('settings'); });
 $('btnSetBack').addEventListener('click', goMenu);
+$('optStats').addEventListener('click', () => { const on = !statsOn(); setStatsOn(on); updateChips(); toast(on ? 'Estatísticas anônimas ligadas (sem cookies, sem dados pessoais).' : 'Estatísticas anônimas desligadas neste aparelho.'); });
 document.addEventListener('fullscreenchange', updateChips);
 $('introBtn').addEventListener('click', () => beginCountdown(3));
 $('btnNext').addEventListener('click', nextScenario);
@@ -1148,9 +1155,9 @@ const miniAPI = {
   get W() { return W; }, get H() { return H; }, get MIN() { return MIN; }, get cursors() { return cursors; }, cx, toScreen, get actx() { return actx; },
   state, settings, sfx, tone, noise, banner, toast, show, hide, setText, showScreen, PLAYER_COLORS, activePlayers,
   emit, particles, rand, randInt, clamp, lerp, pick, fmtTime, contactRadius, ensureAudio, requestWakeLock, progress, saveProgress,
-  startMini(mini) { ensureAudio(); requestWakeLock(); setNumHands(mini.numHands || 2); $('btnSkipTut').classList.add('hidden'); game = null; activeMini = mini; state.lastGame = mini.name; window.__mini = mini; mini.start(); $('hudWaterBox').classList.add('hidden'); beginCountdown(3); },
+  startMini(mini) { track(`jogo/inicio/${slug(mini.name)}`); ensureAudio(); requestWakeLock(); setNumHands(mini.numHands || 2); $('btnSkipTut').classList.add('hidden'); game = null; activeMini = mini; state.lastGame = mini.name; window.__mini = mini; mini.start(); $('hudWaterBox').classList.add('hidden'); beginCountdown(3); },
   endMini({ title, score, stats, bestKey }) {
-    state.phase = 'over'; sfx.over();
+    state.phase = 'over'; sfx.over(); track(`jogo/fim/${slug(activeMini?.name || bestKey)}`);
     const prevBest = progress[bestKey] || 0, isRecord = score > prevBest; if (isRecord) { progress[bestKey] = score; saveProgress(); }
     $('goTitle').textContent = title; $('goScore').textContent = `${score.toLocaleString('pt-BR')} pts`; $('goStats').textContent = stats;
     $('goBest').innerHTML = isRecord && prevBest > 0 ? `${icon('trophy')} NOVO RECORDE!` : `Recorde: ${(progress[bestKey] || 0).toLocaleString('pt-BR')}`;
@@ -1199,6 +1206,13 @@ $('btnFbOver').addEventListener('click', () => fbmod?.openFeedback());
 window.__represa = { get zoom() { return zoomState.z; }, get engage() { return engage; }, get fb() { return fbmod; }, get game() { return game; }, get cursors() { return cursors; }, get state() { return state; }, CONFIG, SCENARIOS, startScenario, startEndless, settings };
 hydrateIcons(); resize(); updateChips(); setupPWA(); requestAnimationFrame(loop);
 
+// ---- Incidente de detecção: câmera ligada há 60 s e nenhuma mão vista ----
+let camOkAt = 0, everHand = false;
+setInterval(() => {
+  if (state.lastLandmarks?.length) everHand = true;
+  if (camOkAt && !everHand && performance.now() - camOkAt > 60000) track(`incidente/sem-maos-60s/${stats.delegate}`, { unique: true });
+}, 2000);
+
 // ---- Idioma: bandeiras na tela de entrada (PT / EN / ES), escolha salva no aparelho ----
 function renderLangPick() {
   const box = $('langPick'); if (!box) return;
@@ -1209,7 +1223,9 @@ function renderLangPick() {
   const cur = document.documentElement.lang.slice(0, 2);
   box.querySelectorAll('[data-lang]').forEach((b) => { const on = b.dataset.lang === cur; b.classList.toggle('chip-on', on); b.setAttribute('aria-pressed', on); });
 }
-installDom(() => { renderLangPick(); updateChips(); engage?.renderMenu(); });
+installDom((id) => { track(`idioma/troca/${id}`); renderLangPick(); updateChips(); engage?.renderMenu(); });
+track('', { event: false, title: `Levanta e Brinca (${langNow})` }); track(`idioma/inicio/${langNow}`, { unique: true });
+if (window.matchMedia?.('(display-mode: standalone)').matches) track('app/aberto-instalado', { unique: true });
 renderLangPick();
 if (!window.isSecureContext && !/^(localhost|127\.)/.test(location.hostname)) activateCamera();
 window.addEventListener('load', () => animateIn('menu'));
