@@ -60,7 +60,7 @@ Depois, em Settings → Pages do repositório: Custom domain = `www.levantaebrin
 Gestos: contagem de dedos estendidos a partir dos 21 pontos (punho = 0–1, tesoura = indicador+médio, aberta = 4–5). Funciona com a mão de frente para a câmera.
 
 ## Estatísticas anônimas e relatório diário
-- `js/stats.js` conta acessos, jogos e incidentes no **GoatCounter** (`STATS_CODE` em `js/config.js`, hoje `levantaebrinca`). Sem cookies, sem identificador do aparelho, sem texto digitado e sem imagem da câmera: só contadores como `jogo/inicio/batatinha-1-2-3`, `jogo/fim/...`, `idioma/inicio/en`, `camera/ok`, `ia/gpu`, `feedback/nota-4`.
+- `js/stats.js` conta acessos, jogos e incidentes no **GoatCounter** (`STATS_CODE` em `js/config.js`, hoje `enosluiz` → enosluiz.goatcounter.com). Sem cookies, sem identificador do aparelho, sem texto digitado e sem imagem da câmera: só contadores como `jogo/inicio/batatinha-1-2-3`, `jogo/fim/...`, `idioma/inicio/en`, `camera/ok`, `ia/gpu`, `feedback/nota-4`.
 - Incidentes (no máximo 1 por sessão cada): `incidente/camera-NotAllowedError` (e outros erros de câmera), `incidente/camera-modelo-ia`, `incidente/gpu-cega`, `incidente/sem-https`, `incidente/sem-maos-60s/<GPU|CPU>` (câmera ligada há 60 s sem ver nenhuma mão), `incidente/js-erro/<arquivo:linha>`.
 - Respeita "Do Not Track" e a opção **Ajustes → Estatísticas anônimas**; não conta em localhost nem em testes automatizados.
 - Um relatório diário (acessos, incidentes e sugestões de melhoria) é montado por uma tarefa agendada e enviado por e-mail ao editor.

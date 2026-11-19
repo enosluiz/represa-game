@@ -18,6 +18,6 @@ export const SITE_URL = '';
 
 // STATS_CODE: código do site no GoatCounter (https://www.goatcounter.com), contagem de acessos
 // e incidentes ANÔNIMA: sem cookies, sem IP guardado, sem dados pessoais (adequado ao ECA Digital/LGPD).
-// Crie a conta grátis com este mesmo código (levantaebrinca → levantaebrinca.goatcounter.com).
+// Conta criada: enosluiz → https://enosluiz.goatcounter.com (contagem por beacon, sem carregar script de terceiros).
 // Vazio = desliga a contagem. O usuário também pode desligar em Ajustes → Estatísticas anônimas.
-export const STATS_CODE = 'levantaebrinca';
+export const STATS_CODE = 'enosluiz';
