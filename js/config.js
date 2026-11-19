@@ -9,7 +9,7 @@
 //      código e publique de novo — assim o endereço deixa de aparecer no código público.
 // Enquanto estiver vazio, o app guarda os feedbacks no aparelho e não envia nada.
 // =============================================================================
-export const FEEDBACK_KEY = '';
+export const FEEDBACK_KEY = 'enosluiz@gmail.com';
 
 // SITE_URL: endereço usado nos links de compartilhamento. Vazio = usa o endereço atual do site
 // (ex.: enosluiz.github.io/represa-game). Quando o domínio próprio estiver no ar, coloque
